@@ -1,10 +1,26 @@
 """Save data obtained from MQTT broker."""
 
 import collections
+import contextlib
 import json
+import time
 
 import numpy as np
 import paho.mqtt.client as mqtt
+
+
+# bind context manager methods to mqtt client class
+def __enter__(self):
+    pass
+
+
+def __exit__(self, *args):
+    self.loop_stop()
+    self.disconnect()
+
+
+mqtt.Client.__enter__ = __enter__
+mqtt.Client.__exit__ = __exit__
 
 
 # create thread-safe containers for storing latest data and save info
@@ -13,6 +29,7 @@ exp2_latest = collections.deque(maxlen=1)
 exp3_latest = collections.deque(maxlen=1)
 exp4_latest = collections.deque(maxlen=1)
 exp5_latest = collections.deque(maxlen=1)
+folder = collections.deque(maxlen=1)
 
 # initialise save info/data queues
 exp1_latest.append({"msg": {"clear": True, "id": "-"}, "data": np.empty((0, 2))})
@@ -138,6 +155,16 @@ def on_message_5(mqttc, obj, msg):
     exp5_latest.append({"msg": m, "data": data})
 
 
+def on_message_6(mqttc, obj, msg):
+    """Act on an MQTT msg.
+
+    Get save information.
+    """
+    m = json.loads(msg.payload)
+    if m["folder"] is not None:
+        folder.append(m["folder"])
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -159,20 +186,28 @@ if __name__ == "__main__":
     subtopics.append(f"data/mppt")
     subtopics.append(f"data/current")
     subtopics.append(f"data/eqe")
+    subtopics.append(f"data/saver")
 
-    on_messages = [on_message_1, on_message_2, on_message_3, on_message_4, on_message_5]
+    on_messages = [
+        on_message_1,
+        on_message_2,
+        on_message_3,
+        on_message_4,
+        on_message_5,
+        on_message_6,
+    ]
 
-    # start a new mqtt subscriber client for each subtopic, each in its own thread
-    mqtt_clients = []
-    for subtopic, on_msg in zip(subtopics, on_messages):
-        mqttc = mqtt.Client()
-        mqtt_clients.append(mqttc)
-        mqttc.on_message = on_msg
-        mqttc.connect(MQTTHOST)
-        mqttc.subscribe(subtopic, qos=2)
-        mqttc.loop_start()
+    # run mqtt subscriber threads in context manager so they disconnect cleanly upon
+    # exit.
+    with contextlib.ExitStack() as stack:
+        for subtopic, on_msg in zip(subtopics, on_messages):
+            mqttc = mqtt.Client()
+            stack.enter_context(mqttc)
+            mqttc.on_message = on_msg
+            mqttc.connect(MQTTHOST)
+            mqttc.subscribe(subtopic, qos=2)
+            mqttc.loop_start()
 
-    # stop mqtt client threads
-    for mqttc in mqtt_clients:
-        mqttc.loop_stop()
-        mqttc.disconnect()
+        # block main thread from terminating
+        while True:
+            time.sleep(60)
