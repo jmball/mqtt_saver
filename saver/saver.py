@@ -37,12 +37,14 @@ def save_data(exp, m):
                 f.writelines(
                     "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\tAux In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\tFreq (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\tEQE\tJsc (ma/cm2)\n"
                 )
+            elif exp == "spectrum":
+                f.writelines("wls (nm)\tirr (W/m^2/nm)\n")
             else:
                 f.writelines("voltage (v)\tcurrent (A)\ttime (s)\tstatus\n")
 
     with open(save_path, "a", newline="\n") as f:
         writer = csv.writer(f, delimiter="\t")
-        if exp == "iv":
+        if (exp == "iv") or (exp == "spectrum"):
             writer.writerows(m["data"])
         else:
             writer.writerow(m["data"])
@@ -65,7 +67,7 @@ def on_message(mqttc, obj, msg):
     m = json.loads(msg.payload)
     if (exp := msg.topic.split("/")[-1]) == "saver":
         update_settings(m)
-    elif exp in ["vt", "iv", "mppt", "it", "eqe"]:
+    elif exp in ["vt", "iv", "mppt", "it", "eqe", "spectrum"]:
         save_data(exp, m)
     else:
         warnings.warn(f"Topic not handled: {msg.topic}")
