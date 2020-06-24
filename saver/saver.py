@@ -39,6 +39,10 @@ def save_data(exp, m):
                 )
             elif exp == "spectrum":
                 f.writelines("wls (nm)\tirr (W/m^2/nm)\n")
+            elif exp == "psu":
+                f.writelines(
+                    "voltage (v)\tcurrent (A)\ttime (s)\tstatus\tpsu_current (A)\n"
+                )
             else:
                 f.writelines("voltage (v)\tcurrent (A)\ttime (s)\tstatus\n")
 
@@ -67,7 +71,7 @@ def on_message(mqttc, obj, msg):
     m = json.loads(msg.payload)
     if (exp := msg.topic.split("/")[-1]) == "saver":
         update_settings(m)
-    elif exp in ["vt", "iv", "mppt", "it", "eqe", "spectrum"]:
+    elif exp in ["vt", "iv", "mppt", "it", "eqe", "spectrum", "psu"]:
         save_data(exp, m)
     else:
         warnings.warn(f"Topic not handled: {msg.topic}")
