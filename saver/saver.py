@@ -14,6 +14,7 @@ import paho.mqtt.client as mqtt
 
 # create thread-safe containers for storing save settings
 folder = collections.deque(maxlen=1)
+archive = collections.deque(maxlen=1)
 
 
 def save_data(exp, m):
@@ -53,6 +54,8 @@ def save_data(exp, m):
         else:
             writer.writerow(m["data"])
 
+    # TODO: add option for network archive
+
 
 def update_settings(m):
     """Update save settings.
@@ -63,7 +66,9 @@ def update_settings(m):
         Message dictionary.
     """
     f = pathlib.Path(m["folder"])
+    a = pathlib.Path(m["archive"])
     folder.append(f)
+    archive.append(a)
 
 
 def on_message(mqttc, obj, msg):
