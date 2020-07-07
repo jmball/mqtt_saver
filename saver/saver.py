@@ -82,6 +82,9 @@ def update_settings(m):
         Message dictionary.
     """
     f = pathlib.Path(m["folder"])
+    # TODO: this is still relative path. Make it absolute.
+    if f.exists() is False:
+        f.mkdir()
     a = pathlib.Path(m["archive"])
     folder.append(f)
     archive.append(a)
