@@ -57,6 +57,22 @@ def save_data(exp, m):
     # TODO: add option for network archive
 
 
+def save_cache(m):
+    """Save data from cache.
+
+    Parameters
+    ----------
+    m : dict
+        Message dictionary.
+    """
+    save_folder = folder[0]
+    save_path = save_folder.joinpath(f"{m['filename']}")
+
+    if not save_path.exists():
+        with open(save_path, "w") as f:
+            f.write(m["contents"])
+
+
 def update_settings(m):
     """Update save settings.
 
@@ -74,8 +90,10 @@ def update_settings(m):
 def on_message(mqttc, obj, msg):
     """Act on an MQTT msg."""
     m = json.loads(msg.payload)
-    if (exp := msg.topic.split("/")[-1]) == "saver":
+    if (exp := msg.topic.split("/")[-1]) == "settings":
         update_settings(m)
+    elif exp == "cache":
+        save_cache(m)
     elif exp in ["vt", "iv", "mppt", "it", "eqe", "spectrum", "psu"]:
         save_data(exp, m)
     else:
