@@ -15,6 +15,7 @@ import paho.mqtt.client as mqtt
 # create thread-safe containers for storing save settings
 folder = collections.deque(maxlen=1)
 archive = collections.deque(maxlen=1)
+path = collections.deque(maxlen=1)
 
 
 def save_data(exp, m):
@@ -30,6 +31,7 @@ def save_data(exp, m):
     save_folder = folder[0]
     timestamp = pathlib.PurePath(save_folder).parts[-1][-10:]
     save_path = save_folder.joinpath(f"{m['id']}_{timestamp}.{exp}")
+    path.append(save_path)
 
     # create file with header if pixel
     if not save_path.exists():
@@ -54,7 +56,21 @@ def save_data(exp, m):
         else:
             writer.writerow(m["data"])
 
-    # TODO: add option for network archive
+
+def ftp_backup():
+    """Backup a completed measurement file using ftp.
+
+    Paramters
+    ---------
+    filepath : pathlib.Path
+        Absolute path to backup.
+    """
+
+    try:
+        # TODO: ftp functions on path[0]
+    except IndexError:
+        # clear cmd issued before any data has been saved
+        pass
 
 
 def save_cache(m):
@@ -82,12 +98,15 @@ def update_settings(m):
         Message dictionary.
     """
     f = pathlib.Path(m["folder"])
-    # TODO: this is still relative path. Make it absolute.
     if f.exists() is False:
         f.mkdir()
-    a = pathlib.Path(m["archive"])
     folder.append(f)
+
+    a = pathlib.Path(m["archive"])
     archive.append(a)
+
+    # new settings means a new experiment has started so clear last saved path
+    path.clear()
 
 
 def on_message(mqttc, obj, msg):
@@ -98,7 +117,10 @@ def on_message(mqttc, obj, msg):
     elif exp == "cache":
         save_cache(m)
     elif exp in ["vt", "iv", "mppt", "it", "eqe", "spectrum", "psu"]:
-        save_data(exp, m)
+        if m["clear"] is False:
+            save_data(exp, m)
+        else:
+            ftp_backup()
     else:
         warnings.warn(f"Topic not handled: {msg.topic}")
 
@@ -119,6 +141,6 @@ if __name__ == "__main__":
     mqttc = mqtt.Client()
     mqttc.on_message = on_message
     mqttc.connect(args.mqtt_host)
-    # subscribe to all sub-topics in data channel
-    mqttc.subscribe("data/#", qos=2)
+    # subscribe to all sub-topics in cli data channel
+    mqttc.subscribe("cli/data/#", qos=2)
     mqttc.loop_forever()
