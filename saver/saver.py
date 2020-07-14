@@ -68,9 +68,12 @@ def ftp_backup():
 
     try:
         # TODO: ftp functions on path[0]
+        pass
     except IndexError:
         # clear cmd issued before any data has been saved
         pass
+
+    path.clear()
 
 
 def save_cache(m):
@@ -105,9 +108,6 @@ def update_settings(m):
     a = pathlib.Path(m["archive"])
     archive.append(a)
 
-    # new settings means a new experiment has started so clear last saved path
-    path.clear()
-
 
 def on_message(mqttc, obj, msg):
     """Act on an MQTT msg."""
@@ -117,10 +117,10 @@ def on_message(mqttc, obj, msg):
     elif exp == "cache":
         save_cache(m)
     elif exp in ["vt", "iv", "mppt", "it", "eqe", "spectrum", "psu"]:
-        if m["clear"] is False:
-            save_data(exp, m)
-        else:
+        if m["end"] is True:
             ftp_backup()
+        elif m["clear"] is False:
+            save_data(exp, m)
     else:
         warnings.warn(f"Topic not handled: {msg.topic}")
 
