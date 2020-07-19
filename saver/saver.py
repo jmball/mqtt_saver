@@ -14,7 +14,6 @@ import paho.mqtt.client as mqtt
 
 # create thread-safe containers for storing save settings
 folder = collections.deque(maxlen=1)
-archive = collections.deque(maxlen=1)
 path = collections.deque(maxlen=1)
 
 
@@ -57,25 +56,6 @@ def save_data(exp, m):
             writer.writerow(m["data"])
 
 
-def ftp_backup():
-    """Backup a completed measurement file using ftp.
-
-    Paramters
-    ---------
-    filepath : pathlib.Path
-        Absolute path to backup.
-    """
-
-    try:
-        # TODO: ftp functions on path[0]
-        pass
-    except IndexError:
-        # clear cmd issued before any data has been saved
-        pass
-
-    path.clear()
-
-
 def save_cache(m):
     """Save data from cache.
 
@@ -105,9 +85,6 @@ def update_settings(m):
         f.mkdir()
     folder.append(f)
 
-    a = pathlib.Path(m["archive"])
-    archive.append(a)
-
 
 def on_message(mqttc, obj, msg):
     """Act on an MQTT msg."""
@@ -117,12 +94,7 @@ def on_message(mqttc, obj, msg):
     elif exp == "cache":
         save_cache(m)
     elif exp in ["vt", "iv", "mppt", "it", "eqe", "spectrum", "psu"]:
-        if m["end"] is True:
-            ftp_backup()
-        elif m["clear"] is False:
-            save_data(exp, m)
-    else:
-        warnings.warn(f"Topic not handled: {msg.topic}")
+        save_data(exp, m)
 
 
 if __name__ == "__main__":
