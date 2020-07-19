@@ -14,10 +14,9 @@ import paho.mqtt.client as mqtt
 
 # create thread-safe containers for storing save settings
 folder = collections.deque(maxlen=1)
-path = collections.deque(maxlen=1)
 
 
-def save_data(exp, m):
+def save_data(kind, data):
     """Save data to text file.
 
     Parameters
@@ -27,10 +26,10 @@ def save_data(exp, m):
     m : dict
         Message dictionary.
     """
+    exp = kind.replace("_measurement", "")
     save_folder = folder[0]
     timestamp = pathlib.PurePath(save_folder).parts[-1][-10:]
-    save_path = save_folder.joinpath(f"{m['id']}_{timestamp}.{exp}")
-    path.append(save_path)
+    save_path = save_folder.joinpath(f"{data['id']}_{timestamp}.{exp}")
 
     # create file with header if pixel
     if not save_path.exists():
@@ -39,49 +38,60 @@ def save_data(exp, m):
                 f.writelines(
                     "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\tAux In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\tFreq (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\tEQE\tJsc (ma/cm2)\n"
                 )
-            elif exp == "spectrum":
-                f.writelines("wls (nm)\tirr (W/m^2/nm)\n")
-            elif exp == "psu":
-                f.writelines(
-                    "voltage (v)\tcurrent (A)\ttime (s)\tstatus\tpsu_current (A)\n"
-                )
             else:
                 f.writelines("voltage (v)\tcurrent (A)\ttime (s)\tstatus\n")
 
     with open(save_path, "a", newline="\n") as f:
         writer = csv.writer(f, delimiter="\t")
-        if (exp == "iv") or (exp == "spectrum"):
-            writer.writerows(m["data"])
+        if exp == "iv":
+            writer.writerows(data)
         else:
-            writer.writerow(m["data"])
+            writer.writerow(data)
 
 
-def save_cache(m):
-    """Save data from cache.
+def save_calibration(kind, data):
+    """Save calibration data.
 
     Parameters
     ----------
-    m : dict
-        Message dictionary.
+    kind : str
+        Kind of data.
+    data : list
+        Data to save.
     """
     save_folder = folder[0]
-    save_path = save_folder.joinpath(f"{m['filename']}")
+    save_path = save_folder.joinpath(f"{kind}_measurement.cal")
 
-    if not save_path.exists():
-        with open(save_path, "w") as f:
-            f.write(m["contents"])
+    # write headers
+    with open(save_path, "w", newline="\n") as f:
+        if (cal := kind.replace("_calibration", "")) == "eqe":
+            f.writelines(
+                "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\tAux In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\tFreq (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\n"
+            )
+        elif cal == "solarsim":
+            f.writelines("wls (nm)\tirr (W/m^2/nm)\n")
+        elif cal == "psu":
+            f.writelines(
+                "voltage (v)\tcurrent (A)\ttime (s)\tstatus\tpsu_current (A)\n"
+            )
+
+    # append data
+    with open(save_path, "a", newline="\n") as f:
+        writer = csv.writer(f, delimiter="\t")
+        writer.writerows(data)
 
 
-def update_settings(m):
+def update_settings(data):
     """Update save settings.
 
     Parameters
     ----------
-    m : dict
-        Message dictionary.
+    data : str
+        Folder name.
     """
-    f = pathlib.Path(m["folder"])
+    f = pathlib.Path(data)
     if f.exists() is False:
+        # create directory in cwd
         f.mkdir()
     folder.append(f)
 
@@ -89,12 +99,21 @@ def update_settings(m):
 def on_message(mqttc, obj, msg):
     """Act on an MQTT msg."""
     m = json.loads(msg.payload)
-    if (exp := msg.topic.split("/")[-1]) == "settings":
-        update_settings(m)
-    elif exp == "cache":
-        save_cache(m)
-    elif exp in ["vt", "iv", "mppt", "it", "eqe", "spectrum", "psu"]:
-        save_data(exp, m)
+    kind = m["kind"]
+    data = m["data"]
+
+    if kind == "save_settings":
+        update_settings(data)
+    elif kind in ["solarsim_calibration", "eqe_calibration", "psu_calibration"]:
+        save_calibration(kind, data)
+    elif kind in [
+        "vt_measurement",
+        "iv_measurement",
+        "mppt_measurement",
+        "it_measurement",
+        "eqe_measurement",
+    ]:
+        save_data(kind, data)
 
 
 if __name__ == "__main__":
@@ -102,7 +121,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "-mqtt-host",
+        "-mqtthost",
         type=str,
         default="",
         help="IP address or hostname for MQTT broker.",
@@ -112,7 +131,7 @@ if __name__ == "__main__":
 
     mqttc = mqtt.Client()
     mqttc.on_message = on_message
-    mqttc.connect(args.mqtt_host)
+    mqttc.connect(args.mqtthost)
     # subscribe to all sub-topics in cli data channel
-    mqttc.subscribe("cli/data/#", qos=2)
+    mqttc.subscribe("server/response", qos=2)
     mqttc.loop_forever()
