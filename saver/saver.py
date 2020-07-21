@@ -1,19 +1,12 @@
 """Save data obtained from MQTT broker."""
 
-import collections
-import contextlib
 import csv
 import json
 import pathlib
 import time
-import warnings
 
-import numpy as np
 import paho.mqtt.client as mqtt
-
-
-# create thread-safe containers for storing save settings
-folder = collections.deque(maxlen=1)
+import yaml
 
 
 def save_data(kind, data):
@@ -36,7 +29,9 @@ def save_data(kind, data):
         with open(save_path, "w", newline="\n") as f:
             if exp == "eqe":
                 f.writelines(
-                    "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\tAux In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\tFreq (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\tEQE\tJsc (ma/cm2)\n"
+                    "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\tAux"
+                    + " In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\tFreq"
+                    + " (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\tEQE\tJsc (ma/cm2)\n"
                 )
             else:
                 f.writelines("voltage (v)\tcurrent (A)\ttime (s)\tstatus\n")
@@ -49,39 +44,102 @@ def save_data(kind, data):
             writer.writerow(data)
 
 
-def save_calibration(kind, data):
+def save_settings(mqttc):
     """Save calibration data.
 
     Parameters
     ----------
-    kind : str
-        Kind of data.
-    data : list
-        Data to save.
+    mqttc : mqtt.Client
+        MQTT save client.
     """
-    save_folder = folder[0]
-    save_path = save_folder.joinpath(f"{kind}_measurement.cal")
+    if folder is not None:
+        save_folder = folder
+    else:
+        save_folder = pathlib.Path()
 
-    # write headers
-    with open(save_path, "w", newline="\n") as f:
-        if (cal := kind.replace("_calibration", "")) == "eqe":
+    # save config
+    if config != {}:
+        save_path = save_folder.joinpath("measurement_config.yaml")
+        with open(save_path, "w") as f:
+            yaml.dump(calibration, f)
+    else:
+        mqttc.publish(
+            "log",
+            json.dumps(
+                {"kind": "warning", "data": "No configuration settings to save."}
+            ),
+        ).wait_for_publish()
+
+    # save calibration
+    if calibration != {}:
+        # save eqe calibration
+        eqe_diode = config["experiments"]["eqe"]["calibration_diode"]
+        save_path = save_folder.joinpath(f"{eqe_diode}_eqe.cal")
+
+        with open(save_path, "w", newline="\n") as f:
             f.writelines(
-                "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\tAux In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\tFreq (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\n"
+                "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\tAux In 2 "
+                + "(V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\tFreq (Hz)\tCh1 "
+                + "display\tCh2 display\tR/Aux In 1\n"
             )
-        elif cal == "solarsim":
+        with open(save_path, "a", newline="\n") as f:
+            writer = csv.writer(f, delimiter="\t")
+            try:
+                writer.writerows(calibration["eqe"][eqe_diode])
+            except KeyError:
+                mqttc.publish(
+                    "log",
+                    json.dumps(
+                        {"kind": "warning", "data": "No EQE calibration data to save."}
+                    ),
+                ).wait_for_publish()
+
+        # save spectral calibration
+        save_path = save_folder.joinpath("spectrum.cal")
+
+        with open(save_path, "w", newline="\n") as f:
             f.writelines("wls (nm)\tirr (W/m^2/nm)\n")
-        elif cal == "psu":
+        with open(save_path, "a", newline="\n") as f:
+            writer = csv.writer(f, delimiter="\t")
+            try:
+                writer.writerows(calibration["spectrum"])
+            except KeyError:
+                mqttc.publish(
+                    "log",
+                    json.dumps(
+                        {
+                            "kind": "warning",
+                            "data": "No spectrum calibration data to save.",
+                        }
+                    ),
+                ).wait_for_publish()
+
+        # save psu calibration
+        save_path = save_folder.joinpath("psu.cal")
+
+        with open(save_path, "w", newline="\n") as f:
             f.writelines(
                 "voltage (v)\tcurrent (A)\ttime (s)\tstatus\tpsu_current (A)\n"
             )
+        with open(save_path, "a", newline="\n") as f:
+            writer = csv.writer(f, delimiter="\t")
+            try:
+                writer.writerows(calibration["psu"])
+            except KeyError:
+                mqttc.publish(
+                    "log",
+                    json.dumps(
+                        {"kind": "warning", "data": "No PSU calibration data to save."}
+                    ),
+                ).wait_for_publish()
+    else:
+        mqttc.publish(
+            "log",
+            json.dumps({"kind": "warning", "data": "No calibration settings to save."}),
+        ).wait_for_publish()
 
-    # append data
-    with open(save_path, "a", newline="\n") as f:
-        writer = csv.writer(f, delimiter="\t")
-        writer.writerows(data)
 
-
-def update_settings(data):
+def update_folder(data):
     """Update save settings.
 
     Parameters
@@ -89,11 +147,38 @@ def update_settings(data):
     data : str
         Folder name.
     """
-    f = pathlib.Path(data)
-    if f.exists() is False:
+    global folder
+
+    folder = pathlib.Path(data)
+    if folder.exists() is False:
         # create directory in cwd
-        f.mkdir()
-    folder.append(f)
+        folder.mkdir()
+
+
+def update_config(new_config):
+    """Update configuration settings.
+
+    Parameters
+    ----------
+    new_config : dict
+        Configuration settings.
+    """
+    global config
+
+    config = new_config
+
+
+def update_calibration(new_calibration):
+    """Update calibration data.
+
+    Parameters
+    ----------
+    new_calibration : dict
+        Configuration settings.
+    """
+    global calibration
+
+    calibration = new_calibration
 
 
 def on_message(mqttc, obj, msg):
@@ -102,10 +187,14 @@ def on_message(mqttc, obj, msg):
     kind = m["kind"]
     data = m["data"]
 
-    if kind == "save_settings":
-        update_settings(data)
-    elif kind in ["solarsim_calibration", "eqe_calibration", "psu_calibration"]:
-        save_calibration(kind, data)
+    if kind == "save_folder":
+        update_folder(data)
+    elif kind == "config":
+        update_config(data)
+    elif kind == "calibration":
+        update_calibration(data)
+    elif kind == "save_settings":
+        save_settings(mqttc)
     elif kind in [
         "vt_measurement",
         "iv_measurement",
@@ -123,15 +212,34 @@ if __name__ == "__main__":
     parser.add_argument(
         "-mqtthost",
         type=str,
-        default="",
+        default="127.0.0.1",
         help="IP address or hostname for MQTT broker.",
     )
 
     args = parser.parse_args()
+
+    # init global variables
+    folder = None
+    config = {}
+    calibration = {}
 
     mqttc = mqtt.Client()
     mqttc.on_message = on_message
     mqttc.connect(args.mqtthost)
     # subscribe to all sub-topics in cli data channel
     mqttc.subscribe("server/response", qos=2)
+
+    # get latest config data from server
+    mqttc.publish(
+        "server/request", json.dumps({"action": "get_config", "data": ""}), qos=2
+    ).wait_for_publish()
+
+    # wait for config to be updated
+    time.sleep(1)
+
+    # get latest calibration data from server
+    mqttc.publish(
+        "server/request", json.dumps({"action": "get_calibration", "data": ""}), qos=2
+    ).wait_for_publish()
+
     mqttc.loop_forever()
