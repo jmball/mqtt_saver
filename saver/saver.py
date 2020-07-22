@@ -73,65 +73,101 @@ def save_settings(mqttc):
     # save calibration
     if calibration != {}:
         # save eqe calibration
-        eqe_diode = config["experiments"]["eqe"]["calibration_diode"]
-        save_path = save_folder.joinpath(f"{eqe_diode}_eqe.cal")
+        for key, value in calibration["eqe"]:
+            diode = key
+            timestamp = value["timestamp"]
+            data = value["data"]
 
-        with open(save_path, "w", newline="\n") as f:
-            f.writelines(
-                "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\tAux In 2 "
-                + "(V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\tFreq (Hz)\tCh1 "
-                + "display\tCh2 display\tR/Aux In 1\n"
-            )
-        with open(save_path, "a", newline="\n") as f:
-            writer = csv.writer(f, delimiter="\t")
-            try:
-                writer.writerows(calibration["eqe"][eqe_diode])
-            except KeyError:
-                mqttc.publish(
-                    "log",
-                    json.dumps(
-                        {"kind": "warning", "data": "No EQE calibration data to save."}
-                    ),
-                ).wait_for_publish()
+            save_path = save_folder.joinpath(f"{timestamp}_{diode}_eqe.cal")
+
+            with open(save_path, "w", newline="\n") as f:
+                f.writelines(
+                    "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\t"
+                    + "Aux In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\t"
+                    + "Freq (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\n"
+                )
+            with open(save_path, "a", newline="\n") as f:
+                writer = csv.writer(f, delimiter="\t")
+                try:
+                    writer.writerows(data)
+                except KeyError:
+                    mqttc.publish(
+                        "log",
+                        json.dumps(
+                            {
+                                "kind": "warning",
+                                "data": "No EQE calibration data to save.",
+                            }
+                        ),
+                    ).wait_for_publish()
 
         # save spectral calibration
-        save_path = save_folder.joinpath("spectrum.cal")
+        try:
+            timestamp = calibration["solarsim"]["spectrum"]["timestamp"]
+            data = calibration["solarsim"]["spectrum"]["data"]
+            save_path = save_folder.joinpath(f"{timestamp}_spectrum.cal")
 
-        with open(save_path, "w", newline="\n") as f:
-            f.writelines("wls (nm)\tirr (W/m^2/nm)\n")
-        with open(save_path, "a", newline="\n") as f:
-            writer = csv.writer(f, delimiter="\t")
-            try:
-                writer.writerows(calibration["spectrum"])
-            except KeyError:
-                mqttc.publish(
-                    "log",
-                    json.dumps(
-                        {
-                            "kind": "warning",
-                            "data": "No spectrum calibration data to save.",
-                        }
-                    ),
-                ).wait_for_publish()
+            with open(save_path, "w", newline="\n") as f:
+                f.writelines("wls (nm)\traw (counts)\tirr (W/m^2/nm)\n")
+            with open(save_path, "a", newline="\n") as f:
+                writer = csv.writer(f, delimiter="\t")
+                writer.writerows(data)
+        except KeyError:
+            mqttc.publish(
+                "log",
+                json.dumps(
+                    {
+                        "kind": "warning",
+                        "data": "No spectrum calibration data to save.",
+                    }
+                ),
+            ).wait_for_publish()
+
+        # save solarsim diode measurements
+        try:
+            for key, value in calibration["solarsim"]["diodes"]:
+                diode = key
+                timestamp = value["timestamp"]
+                data = value["data"]
+
+                save_path = save_folder.joinpath(f"{timestamp}_{diode}_solarsim.cal")
+
+                with open(save_path, "w", newline="\n") as f:
+                    f.writelines("voltage (v)\tcurrent (A)\ttime (s)\tstatus\n")
+                with open(save_path, "a", newline="\n") as f:
+                    writer = csv.writer(f, delimiter="\t")
+                    writer.writerows(data)
+        except KeyError:
+            mqttc.publish(
+                "log",
+                json.dumps(
+                    {"kind": "warning", "data": "No EQE calibration data to save."}
+                ),
+            ).wait_for_publish()
 
         # save psu calibration
-        save_path = save_folder.joinpath("psu.cal")
+        try:
+            for key, value in calibration["psu"]:
+                diode = key
+                timestamp = value["timestamp"]
+                data = value["data"]
 
-        with open(save_path, "w", newline="\n") as f:
-            f.writelines(
-                "voltage (v)\tcurrent (A)\ttime (s)\tstatus\tpsu_current (A)\n"
-            )
-        with open(save_path, "a", newline="\n") as f:
-            writer = csv.writer(f, delimiter="\t")
-            try:
-                writer.writerows(calibration["psu"])
-            except KeyError:
-                mqttc.publish(
-                    "log",
-                    json.dumps(
-                        {"kind": "warning", "data": "No PSU calibration data to save."}
-                    ),
-                ).wait_for_publish()
+                save_path = save_folder.joinpath(f"{timestamp}_{diode}_psu.cal")
+
+                with open(save_path, "w", newline="\n") as f:
+                    f.writelines(
+                        "voltage (v)\tcurrent (A)\ttime (s)\tstatus\tpsu_current (A)\n"
+                    )
+                with open(save_path, "a", newline="\n") as f:
+                    writer = csv.writer(f, delimiter="\t")
+                    writer.writerows(data)
+        except KeyError:
+            mqttc.publish(
+                "log",
+                json.dumps(
+                    {"kind": "warning", "data": "No PSU calibration data to save."}
+                ),
+            ).wait_for_publish()
     else:
         mqttc.publish(
             "log",
