@@ -22,8 +22,13 @@ def save_data(kind, data):
         Message dictionary.
     """
     exp = kind.replace("_measurement", "")
-    save_folder = folder[0]
-    timestamp = pathlib.PurePath(save_folder).parts[-1][-10:]
+    if folder is not None:
+        save_folder = folder
+        timestamp = pathlib.PurePath(save_folder).parts[-1][-10:]
+    else:
+        save_folder = pathlib.Path()
+        timestamp = ""
+
     save_path = save_folder.joinpath(f"{data['id']}_{timestamp}.{exp}")
 
     # create file with header if pixel
@@ -46,7 +51,7 @@ def save_data(kind, data):
             writer.writerow(data)
 
 
-def save_settings(mqttc):
+def save_config(mqttc):
     """Save calibration data.
 
     Parameters
@@ -71,6 +76,20 @@ def save_settings(mqttc):
                 {"kind": "warning", "data": "No configuration settings to save."}
             ),
         ).wait_for_publish()
+
+
+def save_calibration(mqttc):
+    """Save calibration data.
+
+    Parameters
+    ----------
+    mqttc : mqtt.Client
+        MQTT save client.
+    """
+    if folder is not None:
+        save_folder = folder
+    else:
+        save_folder = pathlib.Path()
 
     # save calibration
     if calibration != {}:
@@ -182,24 +201,28 @@ def save_args(args):
     args : dict
         Arguments parsed to server run command.
     """
-    save_folder = folder[0]
+    if folder is not None:
+        save_folder = folder
+    else:
+        save_folder = pathlib.Path()
+
     save_path = save_folder.joinpath("run_args.yaml")
 
     with open(save_path, "w") as f:
         yaml.dump(args, f)
 
 
-def update_folder(data):
+def update_folder(save_folder):
     """Update save settings.
 
     Parameters
     ----------
-    data : str
+    save_folder : str
         Folder name.
     """
     global folder
 
-    folder = pathlib.Path(data)
+    folder = pathlib.Path(save_folder)
     if folder.exists() is False:
         # create directory in cwd
         folder.mkdir()
@@ -260,8 +283,12 @@ def on_message(mqttc, obj, msg):
         update_config(data)
     elif kind == "calibration":
         update_calibration(data)
-    elif kind == "save_settings":
-        save_settings(mqttc)
+    elif kind == "save_config":
+        save_config(mqttc)
+    elif kind == "save_calibration":
+        save_calibration(mqttc)
+    elif kind == "run_args":
+        save_args(data)
     elif kind in [
         "vt_measurement",
         "iv_measurement",
@@ -270,8 +297,6 @@ def on_message(mqttc, obj, msg):
         "eqe_measurement",
     ]:
         save_data(kind, data)
-    elif kind == "run_args":
-        save_args(data)
 
 
 if __name__ == "__main__":
