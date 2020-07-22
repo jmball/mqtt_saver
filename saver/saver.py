@@ -102,15 +102,16 @@ def save_calibration(mqttc):
 
                 save_path = save_folder.joinpath(f"{timestamp}_{diode}_eqe.cal")
 
-                with open(save_path, "w", newline="\n") as f:
-                    f.writelines(
-                        "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\t"
-                        + "Aux In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase "
-                        + "(deg)\tFreq (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\n"
-                    )
-                with open(save_path, "a", newline="\n") as f:
-                    writer = csv.writer(f, delimiter="\t")
-                    writer.writerows(data)
+                if save_path.exists() is False:
+                    with open(save_path, "w", newline="\n") as f:
+                        f.writelines(
+                            "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\t"
+                            + "Aux In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase "
+                            + "(deg)\tFreq (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\n"
+                        )
+                    with open(save_path, "a", newline="\n") as f:
+                        writer = csv.writer(f, delimiter="\t")
+                        writer.writerows(data)
         except KeyError:
             mqttc.publish(
                 "log",
@@ -125,11 +126,12 @@ def save_calibration(mqttc):
             data = calibration["solarsim"]["spectrum"]["data"]
             save_path = save_folder.joinpath(f"{timestamp}_spectrum.cal")
 
-            with open(save_path, "w", newline="\n") as f:
-                f.writelines("wls (nm)\traw (counts)\tirr (W/m^2/nm)\n")
-            with open(save_path, "a", newline="\n") as f:
-                writer = csv.writer(f, delimiter="\t")
-                writer.writerows(data)
+            if save_path.exists() is False:
+                with open(save_path, "w", newline="\n") as f:
+                    f.writelines("wls (nm)\traw (counts)\tirr (W/m^2/nm)\n")
+                with open(save_path, "a", newline="\n") as f:
+                    writer = csv.writer(f, delimiter="\t")
+                    writer.writerows(data)
         except KeyError:
             mqttc.publish(
                 "log",
@@ -150,11 +152,12 @@ def save_calibration(mqttc):
 
                 save_path = save_folder.joinpath(f"{timestamp}_{diode}_solarsim.cal")
 
-                with open(save_path, "w", newline="\n") as f:
-                    f.writelines("voltage (v)\tcurrent (A)\ttime (s)\tstatus\n")
-                with open(save_path, "a", newline="\n") as f:
-                    writer = csv.writer(f, delimiter="\t")
-                    writer.writerows(data)
+                if save_path.exists() is False:
+                    with open(save_path, "w", newline="\n") as f:
+                        f.writelines("voltage (v)\tcurrent (A)\ttime (s)\tstatus\n")
+                    with open(save_path, "a", newline="\n") as f:
+                        writer = csv.writer(f, delimiter="\t")
+                        writer.writerows(data)
         except KeyError:
             mqttc.publish(
                 "log",
@@ -172,13 +175,14 @@ def save_calibration(mqttc):
 
                 save_path = save_folder.joinpath(f"{timestamp}_{diode}_psu.cal")
 
-                with open(save_path, "w", newline="\n") as f:
-                    f.writelines(
-                        "voltage (v)\tcurrent (A)\ttime (s)\tstatus\tpsu_current (A)\n"
-                    )
-                with open(save_path, "a", newline="\n") as f:
-                    writer = csv.writer(f, delimiter="\t")
-                    writer.writerows(data)
+                if save_path.exists() is False:
+                    with open(save_path, "w", newline="\n") as f:
+                        f.writelines(
+                            "voltage (v)\tcurrent (A)\ttime (s)\tstatus\tpsu_current (A)\n"
+                        )
+                    with open(save_path, "a", newline="\n") as f:
+                        writer = csv.writer(f, delimiter="\t")
+                        writer.writerows(data)
         except KeyError:
             mqttc.publish(
                 "log",
