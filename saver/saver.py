@@ -3,7 +3,9 @@
 import csv
 import json
 import pathlib
+import threading
 import time
+import uuid
 
 import paho.mqtt.client as mqtt
 import yaml
@@ -214,6 +216,23 @@ def update_calibration(new_calibration):
     calibration = new_calibration
 
 
+def request(mqttc, action):
+    """Make a request to the server.
+
+    Parameters
+    ----------
+    mqttc : mqtt.Client
+        MQTT client making the request.
+    action : str
+        Action that server should perform.
+    """
+    mqttc.publish(
+        "server/request",
+        json.dumps({"action": action, "data": "", "client-id": client_id}),
+        qos=2,
+    ).wait_for_publish()
+
+
 def on_message(mqttc, obj, msg):
     """Act on an MQTT msg."""
     m = json.loads(msg.payload)
@@ -256,23 +275,23 @@ if __name__ == "__main__":
     config = {}
     calibration = {}
 
-    mqttc = mqtt.Client()
+    # create mqtt client id
+    client_id = f"saver-{uuid.uuid4().hex}"
+
+    mqttc = mqtt.Client(client_id)
     mqttc.on_message = on_message
     mqttc.connect(args.mqtthost)
     # subscribe to all sub-topics in cli data channel
     mqttc.subscribe("server/response", qos=2)
+    mqttc.loop_start()
+
+    # get data folder name
+    request(mqttc, "get_save_folder")
 
     # get latest config data from server
-    mqttc.publish(
-        "server/request", json.dumps({"action": "get_config", "data": ""}), qos=2
-    ).wait_for_publish()
-
-    # wait for config to be updated
-    time.sleep(1)
+    request(mqttc, "get_config")
 
     # get latest calibration data from server
-    mqttc.publish(
-        "server/request", json.dumps({"action": "get_calibration", "data": ""}), qos=2
-    ).wait_for_publish()
+    request(mqttc, "get_calibration")
 
     mqttc.loop_forever()
