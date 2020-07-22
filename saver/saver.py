@@ -174,6 +174,21 @@ def save_settings(mqttc):
         ).wait_for_publish()
 
 
+def save_args(args):
+    """Save arguments parsed to server run command.
+
+    Parameters
+    ----------
+    args : dict
+        Arguments parsed to server run command.
+    """
+    save_folder = folder[0]
+    save_path = save_folder.joinpath("run_args.yaml")
+
+    with open(save_path, "w") as f:
+        yaml.dump(args, f)
+
+
 def update_folder(data):
     """Update save settings.
 
@@ -255,6 +270,8 @@ def on_message(mqttc, obj, msg):
         "eqe_measurement",
     ]:
         save_data(kind, data)
+    elif kind == "run_args":
+        save_args(data)
 
 
 if __name__ == "__main__":
