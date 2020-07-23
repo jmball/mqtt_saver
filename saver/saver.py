@@ -78,7 +78,7 @@ def save_config(mqttc):
         ).wait_for_publish()
 
 
-def save_calibration(mqttc):
+def save_calibration(mqttc, payload):
     """Save calibration data.
 
     Parameters
@@ -89,7 +89,7 @@ def save_calibration(mqttc):
     if folder is not None:
         save_folder = folder
     else:
-        save_folder = pathlib.Path()
+        save_folder = pathlib.Path("temp")
 
     # save calibration
     if calibration != {}:
@@ -197,7 +197,7 @@ def save_calibration(mqttc):
         ).wait_for_publish()
 
 
-def save_args(args):
+def save_args(payload):
     """Save arguments parsed to server run command.
 
     Parameters
@@ -205,6 +205,12 @@ def save_args(args):
     args : dict
         Arguments parsed to server run command.
     """
+    global folder
+
+    args = payload["args"]
+
+    folder = args["destination"]
+
     if folder is not None:
         save_folder = folder
     else:
@@ -216,91 +222,44 @@ def save_args(args):
         yaml.dump(args, f)
 
 
-def update_folder(save_folder):
-    """Update save settings.
+def update_folder(payload):
+    """Update the save folder.
 
     Parameters
     ----------
-    save_folder : str
-        Folder name.
+    payload : dict
+        Message payload.
     """
     global folder
 
-    folder = pathlib.Path(save_folder)
+    folder = pathlib.Path(payload["args"]["destination"])
     if folder.exists() is False:
-        # create directory in cwd
         folder.mkdir()
-
-
-def update_config(new_config):
-    """Update configuration settings.
-
-    Parameters
-    ----------
-    new_config : dict
-        Configuration settings.
-    """
-    global config
-
-    config = new_config
-
-
-def update_calibration(new_calibration):
-    """Update calibration data.
-
-    Parameters
-    ----------
-    new_calibration : dict
-        Configuration settings.
-    """
-    global calibration
-
-    calibration = new_calibration
-
-
-def request(mqttc, action):
-    """Make a request to the server.
-
-    Parameters
-    ----------
-    mqttc : mqtt.Client
-        MQTT client making the request.
-    action : str
-        Action that server should perform.
-    """
-    mqttc.publish(
-        "server/request",
-        json.dumps({"action": action, "data": "", "client-id": client_id}),
-        qos=2,
-    ).wait_for_publish()
 
 
 def on_message(mqttc, obj, msg):
     """Act on an MQTT msg."""
-    m = json.loads(msg.payload)
-    kind = m["kind"]
-    data = m["data"]
+    payload = json.loads(msg.payload)
 
-    if kind == "save_folder":
-        update_folder(data)
-    elif kind == "config":
-        update_config(data)
-    elif kind == "calibration":
-        update_calibration(data)
-    elif kind == "save_config":
-        save_config(mqttc)
-    elif kind == "save_calibration":
-        save_calibration(mqttc)
-    elif kind == "run_args":
-        save_args(data)
-    elif kind in [
-        "vt_measurement",
-        "iv_measurement",
-        "mppt_measurement",
-        "it_measurement",
-        "eqe_measurement",
-    ]:
-        save_data(kind, data)
+    if (topic := msg.topic) == "data/raw":
+        save_raw(payload)
+    elif topic == "data/processed":
+        save_processed(payload)
+    elif topic == "data/calibration":
+        if (measurement := payload["measurement"]) == "eqe_calibration":
+            read_eqe_cal(payload)
+        elif measurement == "psu_calibration":
+            read_psu_cal(payload)
+        elif measurement == "solarsim_diode":
+            read_solarsim_diode_cal(payload)
+        elif measurement == "spectrum_calibration":
+            read_spactrum_cal(payload)
+    elif topic == "measurement/request":
+        if payload["action"] == "run":
+            update_folder(payload)
+            save_args(payload)
+            save_config(payload)
+            save_calibration()
 
 
 if __name__ == "__main__":
@@ -318,7 +277,6 @@ if __name__ == "__main__":
 
     # init global variables
     folder = None
-    config = {}
     calibration = {}
 
     # create mqtt client id
@@ -327,8 +285,10 @@ if __name__ == "__main__":
     mqttc = mqtt.Client(client_id)
     mqttc.on_message = on_message
     mqttc.connect(args.mqtthost)
-    # subscribe to all sub-topics in cli data channel
-    mqttc.subscribe("server/response", qos=2)
+    mqttc.subscribe("data/raw", qos=2)
+    mqttc.subscribe("data/processed", qos=2)
+    mqttc.subscribe("data/calibration", qos=2)
+    mqttc.subscribe("measurement/request", qos=2)
     mqttc.loop_start()
 
     # get data folder name
