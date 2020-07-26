@@ -11,37 +11,52 @@ import paho.mqtt.client as mqtt
 import yaml
 
 
-def save_data(kind, data):
+# make header strings
+eqe_header = (
+    "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\tAux"
+    + " In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\tFreq"
+    + " (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\n"
+)
+eqe_processed_header = eqe_header[:-1] + "\tEQE\n"
+iv_header = "voltage (v)\tcurrent (A)\ttime (s)\tstatus\n"
+spectrum_cal_header = "wls (nm)\traw (counts)\n"
+psu_cal_header = "voltage (v)\tcurrent (A)\ttime (s)\tstatus\tpsu_current (A)\n"
+
+
+def save_data(payload, processed=False):
     """Save data to text file.
 
     Parameters
     ----------
-    topic : str
-        MQTT topic. Lowest level sub-topic sets file type.
-    m : dict
-        Message dictionary.
+    payload : str
+        MQTT message payload.
+    processed : bool
+        Flag for highlighting when data has been processed.
     """
+    kind = payload["kind"]
+    data = payload["data"]
+
     exp = kind.replace("_measurement", "")
     if folder is not None:
         save_folder = folder
-        timestamp = pathlib.PurePath(save_folder).parts[-1][-10:]
     else:
         save_folder = pathlib.Path()
-        timestamp = ""
 
-    save_path = save_folder.joinpath(f"{data['id']}_{timestamp}.{exp}")
+    if processed is True:
+        save_folder = save_folder.joinpath("processed")
+
+    save_path = save_folder.joinpath(f"{data['id']}_{exp_timestamp}.{exp}")
 
     # create file with header if pixel
-    if not save_path.exists():
+    if save_path.exists() is False:
         with open(save_path, "w", newline="\n") as f:
             if exp == "eqe":
-                f.writelines(
-                    "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\tAux"
-                    + " In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\tFreq"
-                    + " (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\tEQE\tJsc (ma/cm2)\n"
-                )
+                if processed is True:
+                    f.writelines(eqe_processed_header)
+                else:
+                    f.writelines(eqe_header)
             else:
-                f.writelines("voltage (v)\tcurrent (A)\ttime (s)\tstatus\n")
+                f.writelines(iv_header)
 
     with open(save_path, "a", newline="\n") as f:
         writer = csv.writer(f, delimiter="\t")
@@ -51,7 +66,7 @@ def save_data(kind, data):
             writer.writerow(data)
 
 
-def save_config(mqttc):
+def save_calibration(payload):
     """Save calibration data.
 
     Parameters
@@ -59,145 +74,71 @@ def save_config(mqttc):
     mqttc : mqtt.Client
         MQTT save client.
     """
-    if folder is not None:
-        save_folder = folder
-    else:
-        save_folder = pathlib.Path()
+    save_folder = pathlib.Path("calibration")
 
-    # save config
-    if config != {}:
-        save_path = save_folder.joinpath("measurement_config.yaml")
-        with open(save_path, "w") as f:
-            yaml.dump(calibration, f)
-    else:
-        mqttc.publish(
-            "log",
-            json.dumps(
-                {"kind": "warning", "data": "No configuration settings to save."}
-            ),
-        ).wait_for_publish()
+    cal_packet = payload["data"]
 
-
-def save_calibration(mqttc, payload):
-    """Save calibration data.
-
-    Parameters
-    ----------
-    mqttc : mqtt.Client
-        MQTT save client.
-    """
-    if folder is not None:
-        save_folder = folder
-    else:
-        save_folder = pathlib.Path("temp")
-
-    # save calibration
-    if calibration != {}:
-        # save eqe calibration
-        try:
-            for key, value in calibration["eqe"]:
-                diode = key
-                timestamp = value["timestamp"]
-                data = value["data"]
-
-                save_path = save_folder.joinpath(f"{timestamp}_{diode}_eqe.cal")
-
-                if save_path.exists() is False:
-                    with open(save_path, "w", newline="\n") as f:
-                        f.writelines(
-                            "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\t"
-                            + "Aux In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase "
-                            + "(deg)\tFreq (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\n"
-                        )
-                    with open(save_path, "a", newline="\n") as f:
-                        writer = csv.writer(f, delimiter="\t")
-                        writer.writerows(data)
-        except KeyError:
-            mqttc.publish(
-                "log",
-                json.dumps(
-                    {"kind": "warning", "data": "No EQE calibration data to save."}
-                ),
-            ).wait_for_publish()
-
-        # save spectral calibration
-        try:
-            timestamp = calibration["solarsim"]["spectrum"]["timestamp"]
-            data = calibration["solarsim"]["spectrum"]["data"]
-            save_path = save_folder.joinpath(f"{timestamp}_spectrum.cal")
-
+    if (kind := payload["kind"]) == "eqe_calibration":
+        for key, value in cal_packet:
+            diode = key
+            timestamp = value["timestamp"]
+            data = value["data"]
+            save_path = save_folder.joinpath(f"{timestamp}_{diode}_eqe.cal")
             if save_path.exists() is False:
                 with open(save_path, "w", newline="\n") as f:
-                    f.writelines("wls (nm)\traw (counts)\tirr (W/m^2/nm)\n")
+                    f.writelines(eqe_header)
                 with open(save_path, "a", newline="\n") as f:
                     writer = csv.writer(f, delimiter="\t")
                     writer.writerows(data)
-        except KeyError:
-            mqttc.publish(
-                "log",
-                json.dumps(
-                    {
-                        "kind": "warning",
-                        "data": "No spectrum calibration data to save.",
-                    }
-                ),
-            ).wait_for_publish()
-
-        # save solarsim diode measurements
-        try:
-            for key, value in calibration["solarsim"]["diodes"]:
-                diode = key
-                timestamp = value["timestamp"]
-                data = value["data"]
-
-                save_path = save_folder.joinpath(f"{timestamp}_{diode}_solarsim.cal")
-
-                if save_path.exists() is False:
-                    with open(save_path, "w", newline="\n") as f:
-                        f.writelines("voltage (v)\tcurrent (A)\ttime (s)\tstatus\n")
-                    with open(save_path, "a", newline="\n") as f:
-                        writer = csv.writer(f, delimiter="\t")
-                        writer.writerows(data)
-        except KeyError:
-            mqttc.publish(
-                "log",
-                json.dumps(
-                    {"kind": "warning", "data": "No EQE calibration data to save."}
-                ),
-            ).wait_for_publish()
-
-        # save psu calibration
-        try:
-            for key, value in calibration["psu"]:
-                diode = key
-                timestamp = value["timestamp"]
-                data = value["data"]
-
-                save_path = save_folder.joinpath(f"{timestamp}_{diode}_psu.cal")
-
-                if save_path.exists() is False:
-                    with open(save_path, "w", newline="\n") as f:
-                        f.writelines(
-                            "voltage (v)\tcurrent (A)\ttime (s)\tstatus\tpsu_current (A)\n"
-                        )
-                    with open(save_path, "a", newline="\n") as f:
-                        writer = csv.writer(f, delimiter="\t")
-                        writer.writerows(data)
-        except KeyError:
-            mqttc.publish(
-                "log",
-                json.dumps(
-                    {"kind": "warning", "data": "No PSU calibration data to save."}
-                ),
-            ).wait_for_publish()
-    else:
-        mqttc.publish(
-            "log",
-            json.dumps({"kind": "warning", "data": "No calibration settings to save."}),
-        ).wait_for_publish()
+    elif kind == "spectrum_calibration":
+        timestamp = cal_packet["timestamp"]
+        data = cal_packet["data"]
+        save_path = save_folder.joinpath(f"{timestamp}_spectrum.cal")
+        if save_path.exists() is False:
+            with open(save_path, "w", newline="\n") as f:
+                f.writelines(spectrum_cal_header)
+            with open(save_path, "a", newline="\n") as f:
+                writer = csv.writer(f, delimiter="\t")
+                writer.writerows(data)
+    elif kind == "solarsim_diode_calibration":
+        for key, value in cal_packet:
+            diode = key
+            timestamp = value["timestamp"]
+            data = value["data"]
+            save_path = save_folder.joinpath(f"{timestamp}_{diode}_solarsim.cal")
+            if save_path.exists() is False:
+                with open(save_path, "w", newline="\n") as f:
+                    f.writelines(iv_header)
+                with open(save_path, "a", newline="\n") as f:
+                    writer = csv.writer(f, delimiter="\t")
+                    writer.writerows(data)
+    elif kind == "psu_calibration":
+        for key, value in cal_packet:
+            diode = key
+            timestamp = value["timestamp"]
+            data = value["data"]
+            save_path = save_folder.joinpath(f"{timestamp}_{diode}_psu.cal")
+            if save_path.exists() is False:
+                with open(save_path, "w", newline="\n") as f:
+                    f.writelines(psu_cal_header)
+                with open(save_path, "a", newline="\n") as f:
+                    writer = csv.writer(f, delimiter="\t")
+                    writer.writerows(data)
+    elif kind == "rtd_calibration":
+        for key, value in cal_packet:
+            rtd = key
+            timestamp = value["timestamp"]
+            data = value["data"]
+            save_path = save_folder.joinpath(f"{timestamp}_{rtd}_rtd.cal")
+            if save_path.exists() is False:
+                with open(save_path, "w", newline="\n") as f:
+                    f.writelines(iv_header)
+                with open(save_path, "a", newline="\n") as f:
+                    writer = csv.writer(f, delimiter="\t")
+                    writer.writerows(data)
 
 
-def save_args(payload):
+def save_run_settings(payload):
     """Save arguments parsed to server run command.
 
     Parameters
@@ -206,35 +147,21 @@ def save_args(payload):
         Arguments parsed to server run command.
     """
     global folder
-
-    args = payload["args"]
-
-    folder = args["destination"]
-
-    if folder is not None:
-        save_folder = folder
-    else:
-        save_folder = pathlib.Path()
-
-    save_path = save_folder.joinpath("run_args.yaml")
-
-    with open(save_path, "w") as f:
-        yaml.dump(args, f)
-
-
-def update_folder(payload):
-    """Update the save folder.
-
-    Parameters
-    ----------
-    payload : dict
-        Message payload.
-    """
-    global folder
+    global exp_timestamp
 
     folder = pathlib.Path(payload["args"]["destination"])
     if folder.exists() is False:
         folder.mkdir()
+
+    exp_timestamp = pathlib.PurePath(folder).parts[-1][-10:]
+
+    # save args
+    with open(folder.joinpath(f"run_args_{exp_timestamp}.yaml"), "w") as f:
+        yaml.dump(payload["args"], f)
+
+    # save config
+    with open(folder.joinpath(f"measurement_config_{exp_timestamp}.yaml"), "w") as f:
+        yaml.dump(payload["config"], f)
 
 
 def on_message(mqttc, obj, msg):
@@ -242,24 +169,14 @@ def on_message(mqttc, obj, msg):
     payload = json.loads(msg.payload)
 
     if (topic := msg.topic) == "data/raw":
-        save_raw(payload)
+        save_data(payload)
     elif topic == "data/processed":
-        save_processed(payload)
-    elif topic == "data/calibration":
-        if (measurement := payload["measurement"]) == "eqe_calibration":
-            read_eqe_cal(payload)
-        elif measurement == "psu_calibration":
-            read_psu_cal(payload)
-        elif measurement == "solarsim_diode":
-            read_solarsim_diode_cal(payload)
-        elif measurement == "spectrum_calibration":
-            read_spactrum_cal(payload)
+        save_data(payload, processed=True)
+    elif msg.topic.split("/")[0] == "calibration":
+        save_calibration(payload)
     elif topic == "measurement/request":
         if payload["action"] == "run":
-            update_folder(payload)
-            save_args(payload)
-            save_config(payload)
-            save_calibration()
+            save_run_settings(payload)
 
 
 if __name__ == "__main__":
@@ -277,7 +194,7 @@ if __name__ == "__main__":
 
     # init global variables
     folder = None
-    calibration = {}
+    exp_timestamp = ""
 
     # create mqtt client id
     client_id = f"saver-{uuid.uuid4().hex}"
@@ -287,17 +204,7 @@ if __name__ == "__main__":
     mqttc.connect(args.mqtthost)
     mqttc.subscribe("data/raw", qos=2)
     mqttc.subscribe("data/processed", qos=2)
-    mqttc.subscribe("data/calibration", qos=2)
+    mqttc.subscribe("calibration/#", qos=2)
     mqttc.subscribe("measurement/request", qos=2)
-    mqttc.loop_start()
-
-    # get data folder name
-    request(mqttc, "get_save_folder")
-
-    # get latest config data from server
-    request(mqttc, "get_config")
-
-    # get latest calibration data from server
-    request(mqttc, "get_calibration")
 
     mqttc.loop_forever()
