@@ -16,7 +16,7 @@ import yaml
 eqe_header = (
     "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\tAux"
     + " In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\tFreq"
-    + " (Hz)\tCh1 display\tCh2 display\tR/Aux In 1\n"
+    + " (Hz)\tCh1 display\tCh2 display\n"
 )
 eqe_processed_header = eqe_header[:-1] + "\tEQE\n"
 iv_header = "voltage (v)\tcurrent (A)\ttime (s)\tstatus\n"
@@ -24,7 +24,7 @@ iv_processed_header = (
     iv_header[:-1] + "\tcurrent_density (mA/cm^2)\tpower_density (mW/cm^2)\n"
 )
 spectrum_cal_header = "wls (nm)\traw (counts)\n"
-psu_cal_header = "voltage (v)\tcurrent (A)\ttime (s)\tstatus\tpsu_current (A)\n"
+psu_cal_header = iv_header[:-1] + "\tset_psu_current (A)\n"
 
 
 def save_data(payload, kind, processed=False):
@@ -81,6 +81,9 @@ def save_data(payload, kind, processed=False):
                     f.writelines(iv_processed_header)
                 else:
                     f.writelines(iv_header)
+
+    if payload["data"] == []:
+        print("EMPTY PAYLOAD")
 
     # append data to file
     with open(save_path, "a", newline="\n") as f:
@@ -174,10 +177,12 @@ def on_message(mqttc, obj, msg):
     topic_list = msg.topic.split("/")
 
     if (topic := topic_list[0]) == "data":
-        if (subtopic0 := topic_list[1]) == "raw":
-            save_data(payload, topic_list[2])
-        elif subtopic0 == "processed":
-            save_data(payload, topic_list[2], True)
+        # ignore clear and end messages
+        if (payload["clear"] is False) & (payload["end"] is False):
+            if (subtopic0 := topic_list[1]) == "raw":
+                save_data(payload, topic_list[2])
+            elif subtopic0 == "processed":
+                save_data(payload, topic_list[2], True)
     elif topic == "calibration":
         if topic_list[1] == "psu":
             subtopic1 = topic_list[2]
