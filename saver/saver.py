@@ -63,7 +63,7 @@ def save_data(payload, kind, processed=False):
         file_prefix = ""
 
     save_path = save_folder.joinpath(
-        f"{file_prefix}{payload['idn']}_{exp_timestamp}.{exp}"
+        f"{file_prefix}{payload['idn']}_{exp_timestamp}.{exp}.tsv"
     )
 
     print(save_path)
@@ -122,18 +122,24 @@ def save_calibration(payload, kind, extra=None):
 
     if kind == "eqe":
         idn = payload["diode"]
-        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_{kind}.cal")
+        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}.{kind}.cal.tsv")
         header = eqe_header
     elif kind == "spectrum":
-        save_path = save_folder.joinpath(f"{human_timestamp}_{kind}.cal")
+        save_path = save_folder.joinpath(f"{human_timestamp}.{kind}.cal.tsv")
         header = spectrum_cal_header
-    elif (kind == "solarsim_diode") or (kind == "rtd"):
+    elif kind == "solarsim_diode":
         idn = payload["diode"]
-        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_{kind}.cal")
+        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}.ss.cal.tsv")
+        header = iv_header
+    elif kind == "rtd":
+        idn = payload["diode"]
+        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}.{kind}.cal.tsv")
         header = iv_header
     elif kind == "psu":
         idn = payload["diode"]
-        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_{extra}_{kind}.cal")
+        save_path = save_folder.joinpath(
+            f"{human_timestamp}_{idn}_{extra}.{kind}.cal.tsv"
+        )
         header = psu_cal_header
 
     if save_path.exists() is False:
