@@ -161,6 +161,8 @@ def save_run_settings(payload):
     global folder
     global exp_timestamp
 
+    print("Saving run settings...")
+
     folder = pathlib.Path(payload["args"]["run_name"])
     if folder.exists() is False:
         folder.mkdir()
@@ -179,7 +181,6 @@ def save_run_settings(payload):
 def on_message(mqttc, obj, msg):
     """Act on an MQTT msg."""
     payload = pickle.loads(msg.payload)
-    print(msg.topic, payload)
     topic_list = msg.topic.split("/")
 
     if (topic := topic_list[0]) == "data":
