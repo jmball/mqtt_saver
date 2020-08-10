@@ -45,8 +45,6 @@ def save_data(payload, kind, processed=False):
     else:
         exp_prefix = ""
 
-    print(f"Saving {kind} data...")
-
     exp = f"{exp_prefix}{kind.replace('_measurement', '')}"
 
     if folder is not None:
@@ -65,8 +63,6 @@ def save_data(payload, kind, processed=False):
     save_path = save_folder.joinpath(
         f"{file_prefix}{payload['idn']}_{exp_timestamp}.{exp}.tsv"
     )
-
-    print(save_path)
 
     # create file with header if pixel
     if save_path.exists() is False:
@@ -106,7 +102,6 @@ def save_calibration(payload, kind, extra=None):
     extra : str
         Extra information about the calibration type added to the filename.
     """
-    print(f"Saving {kind} calibration...")
     save_folder = pathlib.Path("calibration")
     if save_folder.exists() is False:
         save_folder.mkdir()
@@ -160,8 +155,6 @@ def save_run_settings(payload):
     """
     global folder
     global exp_timestamp
-
-    print("Saving run settings...")
 
     folder = pathlib.Path(payload["args"]["run_name"])
     if folder.exists() is False:
