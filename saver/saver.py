@@ -177,12 +177,10 @@ def on_message(mqttc, obj, msg):
     topic_list = msg.topic.split("/")
 
     if (topic := topic_list[0]) == "data":
-        # ignore clear and end messages
-        if (payload["clear"] is False) & (payload["end"] is False):
-            if (subtopic0 := topic_list[1]) == "raw":
-                save_data(payload, topic_list[2])
-            elif subtopic0 == "processed":
-                save_data(payload, topic_list[2], True)
+        if (subtopic0 := topic_list[1]) == "raw":
+            save_data(payload, topic_list[2])
+        elif subtopic0 == "processed":
+            save_data(payload, topic_list[2], True)
     elif topic == "calibration":
         if topic_list[1] == "psu":
             subtopic1 = topic_list[2]
