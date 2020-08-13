@@ -60,9 +60,11 @@ def save_data(payload, kind, processed=False):
     else:
         file_prefix = ""
 
-    save_path = save_folder.joinpath(
-        f"{file_prefix}{payload['idn']}_{exp_timestamp}.{exp}.tsv"
-    )
+    label = payload["pixel"]["label"]
+    pixel = payload["pixel"]["pixel"]
+    idn = f"{label}_device{pixel}"
+
+    save_path = save_folder.joinpath(f"{file_prefix}{idn}_{exp_timestamp}.{exp}.tsv")
 
     # create file with header if pixel
     if save_path.exists() is False:
@@ -111,7 +113,7 @@ def save_calibration(payload, kind, extra=None):
     timestamp = payload["timestamp"]
     # local timezone
     timezone = datetime.now().astimezone().tzinfo
-    fmt = "[%Y-%m-%d]_[%H-%M-%S_%z]"
+    fmt = "%Y-%m-%d_%H-%M-%S_%z"
     human_timestamp = datetime.fromtimestamp(timestamp, tz=timezone).strftime(f"{fmt}")
 
     data = payload["data"]
