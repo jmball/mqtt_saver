@@ -66,6 +66,7 @@ def save_data(payload, kind, processed=False):
 
     # create file with header if pixel
     if save_path.exists() is False:
+        print(f"New save path: {save_path}")
         with open(save_path, "w", newline="\n") as f:
             if exp == "eqe":
                 if processed is True:
