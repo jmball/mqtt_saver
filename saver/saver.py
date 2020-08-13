@@ -3,6 +3,8 @@
 import csv
 import pathlib
 import pickle
+import queue
+import threading
 import uuid
 
 from datetime import datetime
@@ -174,24 +176,37 @@ def save_run_settings(payload):
         yaml.dump(payload["config"], f)
 
 
+save_queue = queue.Queue()
+
+
 def on_message(mqttc, obj, msg):
     """Act on an MQTT msg."""
-    payload = pickle.loads(msg.payload)
-    topic_list = msg.topic.split("/")
+    save_queue.put_nowait(msg)
 
-    if (topic := topic_list[0]) == "data":
-        if (subtopic0 := topic_list[1]) == "raw":
-            save_data(payload, topic_list[2])
-        elif subtopic0 == "processed":
-            save_data(payload, topic_list[2], True)
-    elif topic == "calibration":
-        if topic_list[1] == "psu":
-            subtopic1 = topic_list[2]
-        else:
-            subtopic1 = None
-        save_calibration(payload, topic_list[1], subtopic1)
-    elif msg.topic == "measurement/run":
-        save_run_settings(payload)
+
+def save_handler():
+    """Handle cmds to saver."""
+    while True:
+        msg = save_queue.get()
+
+        payload = pickle.loads(msg.payload)
+        topic_list = msg.topic.split("/")
+
+        if (topic := topic_list[0]) == "data":
+            if (subtopic0 := topic_list[1]) == "raw":
+                save_data(payload, topic_list[2])
+            elif subtopic0 == "processed":
+                save_data(payload, topic_list[2], True)
+        elif topic == "calibration":
+            if topic_list[1] == "psu":
+                subtopic1 = topic_list[2]
+            else:
+                subtopic1 = None
+            save_calibration(payload, topic_list[1], subtopic1)
+        elif msg.topic == "measurement/run":
+            save_run_settings(payload)
+
+        save_queue.task_done()
 
 
 if __name__ == "__main__":
@@ -210,6 +225,9 @@ if __name__ == "__main__":
     # init global variables
     folder = None
     exp_timestamp = ""
+
+    # start save handler thread
+    threading.Thread(target=save_handler, daemon=True).start()
 
     # create mqtt client id
     client_id = f"saver-{uuid.uuid4().hex}"
