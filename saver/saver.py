@@ -42,6 +42,7 @@ def save_data(payload, kind, processed=False):
     if kind.startswith("iv_measurement"):
         exp_prefix = payload["sweep"][0]
         exp_suffix = kind[-1]
+        kind = kind.split("/")[0]
     else:
         exp_prefix = ""
         exp_suffix = ""
