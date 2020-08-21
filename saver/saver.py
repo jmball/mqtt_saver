@@ -39,15 +39,14 @@ def save_data(payload, kind, processed=False):
     processed : bool
         Flag for highlighting when data has been processed.
     """
-    if kind == "iv_measurement":
-        if payload["sweep"] == "dark":
-            exp_prefix = "d"
-        elif payload["sweep"] == "light":
-            exp_prefix = "l"
+    if kind.startswith("iv_measurement"):
+        exp_prefix = payload["sweep"][0]
+        exp_suffix = kind[-1]
     else:
         exp_prefix = ""
+        exp_suffix = ""
 
-    exp = f"{exp_prefix}{kind.replace('_measurement', '')}"
+    exp = f"{exp_prefix}{kind.replace('_measurement', '')}{exp_suffix}"
 
     if folder is not None:
         save_folder = folder
@@ -194,9 +193,9 @@ def save_handler():
 
         if (topic := topic_list[0]) == "data":
             if (subtopic0 := topic_list[1]) == "raw":
-                save_data(payload, topic_list[2])
+                save_data(payload, msg.topic.replace("data/raw/", ""))
             elif subtopic0 == "processed":
-                save_data(payload, topic_list[2], True)
+                save_data(payload, msg.topic.replace("data/raw/", ""), True)
         elif topic == "calibration":
             if topic_list[1] == "psu":
                 subtopic1 = topic_list[2]
