@@ -196,7 +196,7 @@ def save_handler():
             if (subtopic0 := topic_list[1]) == "raw":
                 save_data(payload, msg.topic.replace("data/raw/", ""))
             elif subtopic0 == "processed":
-                save_data(payload, msg.topic.replace("data/raw/", ""), True)
+                save_data(payload, msg.topic.replace("data/processed/", ""), True)
         elif topic == "calibration":
             if topic_list[1] == "psu":
                 subtopic1 = topic_list[2]
