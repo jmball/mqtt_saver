@@ -89,7 +89,7 @@ def save_data(payload, kind, processed=False):
     # append data to file
     with open(save_path, "a", newline="\n") as f:
         writer = csv.writer(f, delimiter="\t")
-        if (exp == "liv") or (exp == "div"):
+        if exp.startswith("liv") or exp.startswith("div"):
             writer.writerows(payload["data"])
         else:
             writer.writerow(payload["data"])
