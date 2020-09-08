@@ -189,22 +189,25 @@ def save_handler():
     while True:
         msg = save_queue.get()
 
-        payload = pickle.loads(msg.payload)
-        topic_list = msg.topic.split("/")
+        try:
+            payload = pickle.loads(msg.payload)
+            topic_list = msg.topic.split("/")
 
-        if (topic := topic_list[0]) == "data":
-            if (subtopic0 := topic_list[1]) == "raw":
-                save_data(payload, msg.topic.replace("data/raw/", ""))
-            elif subtopic0 == "processed":
-                save_data(payload, msg.topic.replace("data/processed/", ""), True)
-        elif topic == "calibration":
-            if topic_list[1] == "psu":
-                subtopic1 = topic_list[2]
-            else:
-                subtopic1 = None
-            save_calibration(payload, topic_list[1], subtopic1)
-        elif msg.topic == "measurement/run":
-            save_run_settings(payload)
+            if (topic := topic_list[0]) == "data":
+                if (subtopic0 := topic_list[1]) == "raw":
+                    save_data(payload, msg.topic.replace("data/raw/", ""))
+                elif subtopic0 == "processed":
+                    save_data(payload, msg.topic.replace("data/processed/", ""), True)
+            elif topic == "calibration":
+                if topic_list[1] == "psu":
+                    subtopic1 = topic_list[2]
+                else:
+                    subtopic1 = None
+                save_calibration(payload, topic_list[1], subtopic1)
+            elif msg.topic == "measurement/run":
+                save_run_settings(payload)
+        except:
+            pass
 
         save_queue.task_done()
 
