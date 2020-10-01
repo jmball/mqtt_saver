@@ -11,7 +11,7 @@ import uuid
 
 from datetime import datetime
 
-from central_control_dev.put_ftp import put_ftp
+from central_control.put_ftp import put_ftp
 
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
