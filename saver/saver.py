@@ -212,6 +212,7 @@ def ftp_backup(ftphost):
         Full FTP server address and remote path for backup, e.g.
         'ftp://[hostname]/[path]/'.
     """
+    dest_folder = pathlib.PurePurePosixPath("/dump")  # folder in server to upload to
     while True:
         if run_complete[0] is True:
             # run has finished so backup all files left in the queue
@@ -219,18 +220,20 @@ def ftp_backup(ftphost):
                 file = backup_q.get()
 
                 with put_ftp(ftphost) as ftp:
-                    ftp.uploadFile(file)
+                    with open(file, 'rb') as fh:
+                        ftp.uploadFile(fh, remote_path=str(dest_folder / PurePurePosixPath(file.parent) +'/')
 
                 backup_q.task_done()
 
             # reset the run complete flag
             run_complete.append(False)
-        elif backup_q.qsize > 1:
+        elif backup_q.qsize() > 1:
             # there is at least one finished file to backup
             file = backup_q.get()
 
             with put_ftp(ftphost) as ftp:
-                ftp.uploadFile(file)
+                with open(file, 'rb') as fh:
+                    ftp.uploadFile(fh, remote_path=str(dest_folder / PurePurePosixPath(file.parent) +'/')
 
             backup_q.task_done()
         else:
