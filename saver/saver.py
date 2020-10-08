@@ -221,7 +221,7 @@ def ftp_backup(ftphost):
 
                 with put_ftp(ftphost) as ftp:
                     with open(file, 'rb') as fh:
-                        ftp.uploadFile(fh, remote_path=str(dest_folder / PurePurePosixPath(file.parent) +'/')
+                        ftp.uploadFile(fh, remote_path=str(dest_folder / PurePurePosixPath(file.parent) +'/'))
 
                 backup_q.task_done()
 
@@ -233,7 +233,7 @@ def ftp_backup(ftphost):
 
             with put_ftp(ftphost) as ftp:
                 with open(file, 'rb') as fh:
-                    ftp.uploadFile(fh, remote_path=str(dest_folder / PurePurePosixPath(file.parent) +'/')
+                    ftp.uploadFile(fh, remote_path=str(dest_folder / PurePurePosixPath(file.parent) +'/'))
 
             backup_q.task_done()
         else:
