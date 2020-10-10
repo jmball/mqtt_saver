@@ -8,6 +8,7 @@ import queue
 import threading
 import time
 import uuid
+import pandas
 
 from datetime import datetime
 
@@ -182,26 +183,34 @@ def save_run_settings(payload):
     global exp_timestamp
 
     folder = pathlib.Path(payload["args"]["run_name"])
-    if folder.exists() is False:
-        folder.mkdir()
+    folder.mkdir(parents=True, exist_ok=True)
 
-    exp_timestamp = pathlib.PurePath(folder).parts[-1][-10:]
+    exp_timestamp = payload["args"]["run_name_suffix"]
 
-    run_args_path = folder.joinpath(f"run_args_{exp_timestamp}.yaml")
-    config_path = folder.joinpath(f"measurement_config_{exp_timestamp}.yaml")
+    run_args_path = folder.joinpath(f"run_args.yaml")
+    config_path = folder.joinpath(f"measurement_config.yaml")
+
+    # for the FTP backup queue
+    to_backup = []
+
+    # save the device selection dataframe(s)
+    for key in payload["args"]["pixel_data_object_names"]:
+        df = payload["args"][key]
+        save_path = folder.joinpath(f"{df.index.name}_pixel_setup.csv")
+        df.to_csv(save_path)
+        # we've handled this data now, don't want to save it twice
+        del payload["args"][key]
+        to_backup.append(save_path)
 
     # save args
     with open(run_args_path, "w") as f:
         yaml.dump(payload["args"], f)
+    to_backup.append(run_args_path)
 
     # save config
     with open(config_path, "w") as f:
         yaml.dump(payload["config"], f)
-
-    # add files to FTP backup queue
-    backup_q.put(run_args_path)
-    backup_q.put(config_path)
-
+    to_backup.append(config_path)
 
 def ftp_backup(ftphost):
     """Backup files using FTP.
