@@ -285,7 +285,7 @@ def save_handler():
         save_queue.task_done()
 
 
-if __name__ == "__main__":
+def main():
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -332,3 +332,6 @@ if __name__ == "__main__":
     )
     print(f"{client_id} connected!")
     mqttc.loop_forever()
+
+if __name__ == "__main__":
+    main()
