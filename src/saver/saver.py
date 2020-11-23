@@ -12,7 +12,7 @@ import pandas
 
 from datetime import datetime
 
-from central_control.put_ftp import put_ftp
+from centralcontrol.put_ftp import put_ftp
 
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
