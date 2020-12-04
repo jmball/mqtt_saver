@@ -341,7 +341,7 @@ class Saver:
             hostname=args.mqtthost,
         )
         print(f"{client_id} connected!")
-        print(f"Saving to {os.cwd()}")
+        print(f"Saving to {os.getcwd()}")
         mqttc.loop_forever()
 
 def run():
