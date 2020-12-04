@@ -1,0 +1,12 @@
+[Unit]
+Description=The data saver service
+
+[Service]
+WorkingDirectory=-%h/data
+#EnvironmentFile=-%h/.config/saver_env.txt
+Environment=PYTHONPATH=/opt/software/python
+ExecStart=/usr/bin/mqtt-saver -mqtthost 127.0.0.1
+RestartSec=3
+Restart=always
+PrivateTmp=true
+NoNewPrivileges=true

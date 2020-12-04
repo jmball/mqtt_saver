@@ -16,6 +16,7 @@ from centralcontrol.put_ftp import put_ftp
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
 import yaml
+import os
 
 import argparse
 
@@ -306,7 +307,12 @@ class Saver:
 
         # start FTP backup thread if required
         if args.ftphost is not None:
-            threading.Thread(target=self.ftp_backup, args=(args.ftphost,), daemon=True).start()
+            ftp_addr = args.ftphost
+        else:
+            ftp_addr = os.environ.get('SAVER_FTP')
+
+        if ftp_addr is not None:
+            threading.Thread(target=self.ftp_backup, args=(args.ftp_addr,), daemon=True).start()
 
         # create mqtt client id
         client_id = f"saver-{uuid.uuid4().hex}"
