@@ -11,12 +11,16 @@ import uuid
 
 from datetime import datetime
 
-from centralcontrol.put_ftp import put_ftp
+try:
+    from centralcontrol.put_ftp import put_ftp
+except ImportError:
+    pass
 
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
 import yaml
 import os
+import sys
 
 import argparse
 
@@ -47,6 +51,11 @@ class Saver:
 
     folder = None
     exp_timestamp = ""
+
+    if 'centralcontrol' in sys.modules:
+        ftp_support = True
+    else:
+        ftp_support = False
 
     def save_data(self, payload, kind, processed=False):
         """Save data to text file.
@@ -311,8 +320,9 @@ class Saver:
         else:
             ftp_addr = os.environ.get('SAVER_FTP')
 
-        if ftp_addr is not None:
+        if (ftp_addr is not None) and (self.ftp_suport == True):
             threading.Thread(target=self.ftp_backup, args=(args.ftp_addr,), daemon=True).start()
+            print(f'FTP backup enabled: {ftp_addr}')
 
         # create mqtt client id
         client_id = f"saver-{uuid.uuid4().hex}"
@@ -331,6 +341,7 @@ class Saver:
             hostname=args.mqtthost,
         )
         print(f"{client_id} connected!")
+        print(f"Saving to {os.cwd()}")
         mqttc.loop_forever()
 
 def run():
