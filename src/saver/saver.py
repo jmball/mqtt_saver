@@ -320,7 +320,7 @@ class Saver:
         else:
             ftp_addr = os.environ.get('SAVER_FTP')
 
-        if (ftp_addr is not None) and (self.ftp_suport == True):
+        if (ftp_addr is not None) and (self.ftp_support == True):
             threading.Thread(target=self.ftp_backup, args=(args.ftp_addr,), daemon=True).start()
             print(f'FTP backup enabled: {ftp_addr}')
 
