@@ -204,6 +204,11 @@ class Saver:
             df = payload["args"][key]
             dfk = df[payload["args"]["pix_cols_to_save"]] #keep only the whitelisted cols
             save_path = self.folder.joinpath(f"{df.index.name}_pixel_setup_{self.exp_timestamp}.csv")
+
+            # handle custom area overrides for the csv (if any)
+            dfk['area'] = dfk['area'].replace(-1, payload["args"]["a_ovr_spin"])
+            dfk['dark_area'] = dfk['dark_area'].replace(-1, payload["args"]["a_ovr_spin"])
+
             dfk.to_csv(save_path)
             # we've handled this data now, don't want to save it twice
             del payload["args"][key]
