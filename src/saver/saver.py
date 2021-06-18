@@ -227,7 +227,6 @@ class Saver:
         args : dict
             Arguments parsed to server run command.
         """
-
         self.folder = pathlib.Path(payload["args"]["run_name"])
         self.folder.mkdir(parents=True, exist_ok=True)
 
@@ -238,26 +237,28 @@ class Saver:
             f"measurement_config_{self.exp_timestamp}.yaml"
         )
 
-        # save the device selection dataframe(s)
-        for key in payload["args"]["pixel_data_object_names"]:
-            df = payload["args"][key]
-            dfk = df[
-                payload["args"]["pix_cols_to_save"]
-            ]  # keep only the whitelisted cols
-            save_path = self.folder.joinpath(
-                f"{df.index.name}_pixel_setup_{self.exp_timestamp}.csv"
-            )
+        # save the device selection dataframe(s) if provided
+        if "pixel_data_object_names" in payload["args"]:
+            for key in payload["args"]["pixel_data_object_names"]:
+                df = payload["args"][key]
 
-            # handle custom area overrides for the csv (if any)
-            dfk["area"] = dfk["area"].replace(-1, payload["args"]["a_ovr_spin"])
-            dfk["dark_area"] = dfk["dark_area"].replace(
-                -1, payload["args"]["a_ovr_spin"]
-            )
+                # keep only the whitelisted cols
+                dfk = df[payload["args"]["pix_cols_to_save"]]
 
-            dfk.to_csv(save_path)
-            # we've handled this data now, don't want to save it twice
-            del payload["args"][key]
-            self.backup_q.put(save_path)
+                save_path = self.folder.joinpath(
+                    f"{df.index.name}_pixel_setup_{self.exp_timestamp}.csv"
+                )
+
+                # handle custom area overrides for the csv (if any)
+                dfk["area"] = dfk["area"].replace(-1, payload["args"]["a_ovr_spin"])
+                dfk["dark_area"] = dfk["dark_area"].replace(
+                    -1, payload["args"]["a_ovr_spin"]
+                )
+
+                dfk.to_csv(save_path)
+                # we've handled this data now, don't want to save it twice
+                del payload["args"][key]
+                self.backup_q.put(save_path)
 
         # save args
         with open(run_args_path, "w") as f:
