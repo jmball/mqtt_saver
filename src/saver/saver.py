@@ -346,9 +346,11 @@ class Saver:
 
         parser = argparse.ArgumentParser()
         parser.add_argument(
-            "-mqtthost",
+            "--mqtthost",
             type=str,
+            nargs='?',
             default="127.0.0.1",
+            const="127.0.0.1",
             help="IP address or hostname for MQTT broker.",
         )
         parser.add_argument(
