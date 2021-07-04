@@ -58,7 +58,7 @@ class Saver:
     folder = None
     exp_timestamp = ""
 
-    if "centralcontrol" in sys.modules:
+    if "centralcontrol.put_ftp" in sys.modules:
         ftp_support = True
     else:
         ftp_support = False
@@ -365,16 +365,20 @@ class Saver:
         threading.Thread(target=self.save_handler, daemon=True).start()
 
         # start FTP backup thread if required
+        ftp_env_var = "SAVER_FTP"
         if args.ftphost is not None:
             ftp_addr = args.ftphost
+        elif ftp_env_var in os.environ:
+            ftp_addr = os.environ.get(ftp_env_var)
         else:
-            ftp_addr = os.environ.get("SAVER_FTP")
+            ftp_addr = None
 
-        if (ftp_addr is not None) and (self.ftp_support == True):
-            threading.Thread(
-                target=self.ftp_backup, args=(ftp_addr,), daemon=True
-            ).start()
-            print(f"FTP backup enabled: {ftp_addr}")
+        if ftp_addr is not None:
+            if self.ftp_support == True:
+                threading.Thread(target=self.ftp_backup, args=(ftp_addr,), daemon=True).start()
+                print(f"FTP backup enabled: {ftp_addr}")
+            else:
+                print("WARNING: unable to enable FTP backup")
 
         # create mqtt client id
         client_id = f"saver-{uuid.uuid4().hex}"
