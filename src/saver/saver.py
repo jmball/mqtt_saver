@@ -288,10 +288,10 @@ class Saver:
 
                 # reset the run complete flag
                 self.run_complete.append(False)
-            elif self.backup_q.qsize() > 1:
-                # there is at least one finished file to backup
-                self.send_backup_file(self.backup_q.get(), ftphost)
-                self.backup_q.task_done()
+            # elif self.backup_q.qsize() > 1:
+            #     # there is at least one finished file to backup
+            #     self.send_backup_file(self.backup_q.get(), ftphost)
+            #     self.backup_q.task_done()
             else:
                 time.sleep(1)
 
@@ -348,7 +348,7 @@ class Saver:
         parser.add_argument(
             "--mqtthost",
             type=str,
-            nargs='?',
+            nargs="?",
             default="127.0.0.1",
             const="127.0.0.1",
             help="IP address or hostname for MQTT broker.",
@@ -375,7 +375,9 @@ class Saver:
 
         if ftp_addr is not None:
             if self.ftp_support == True:
-                threading.Thread(target=self.ftp_backup, args=(ftp_addr,), daemon=True).start()
+                threading.Thread(
+                    target=self.ftp_backup, args=(ftp_addr,), daemon=True
+                ).start()
                 print(f"FTP backup enabled: {ftp_addr}")
             else:
                 print("WARNING: unable to enable FTP backup")
