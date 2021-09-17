@@ -1,17 +1,13 @@
 """Save data obtained from MQTT broker."""
 
-import collections
 import csv
 import pathlib
 import pickle
 import queue
 import threading
-import time
 import uuid
 
 from datetime import datetime
-
-from central_control_dev.put_ftp import put_ftp
 
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
@@ -31,16 +27,6 @@ iv_processed_header = (
 )
 spectrum_cal_header = "wls (nm)\traw (counts)\n"
 psu_cal_header = iv_header[:-1] + "\tset_psu_current (A)\n"
-
-# queue latest file names for optional FTP backup in worker thread
-backup_q = queue.Queue()
-
-# flag whether a run is complete (use deque for thread-safety)
-run_complete = collections.deque(maxlen=1)
-run_complete.append(False)
-
-# add incoming mqtt messages to a queue for worker thread
-save_queue = queue.Queue()
 
 
 def save_data(payload, kind, processed=False):
@@ -85,8 +71,6 @@ def save_data(payload, kind, processed=False):
     # create file with header if pixel
     if save_path.exists() is False:
         print(f"New save path: {save_path}")
-        # append file name for backup
-        backup_q.put(save_path)
         with open(save_path, "w", newline="\n") as f:
             if exp == "eqe":
                 if processed is True:
@@ -165,10 +149,6 @@ def save_calibration(payload, kind, extra=None):
             writer = csv.writer(f, delimiter="\t")
             writer.writerows(data)
 
-        # trigger FTP backup of cal file
-        backup_q.put(save_path)
-        run_complete.append(True)
-
 
 def save_run_settings(payload):
     """Save arguments parsed to server run command.
@@ -187,54 +167,16 @@ def save_run_settings(payload):
 
     exp_timestamp = pathlib.PurePath(folder).parts[-1][-10:]
 
-    run_args_path = folder.joinpath(f"run_args_{exp_timestamp}.yaml")
-    config_path = folder.joinpath(f"measurement_config_{exp_timestamp}.yaml")
-
     # save args
-    with open(run_args_path, "w") as f:
+    with open(folder.joinpath(f"run_args_{exp_timestamp}.yaml"), "w") as f:
         yaml.dump(payload["args"], f)
 
     # save config
-    with open(config_path, "w") as f:
+    with open(folder.joinpath(f"measurement_config_{exp_timestamp}.yaml"), "w") as f:
         yaml.dump(payload["config"], f)
 
-    # add files to FTP backup queue
-    backup_q.put(run_args_path)
-    backup_q.put(config_path)
 
-
-def ftp_backup(ftphost):
-    """Backup files using FTP.
-
-    Parameters
-    ----------
-    ftphost : str
-        Full FTP server address and remote path for backup, e.g.
-        'ftp://[hostname]/[path]/'.
-    """
-    while True:
-        if run_complete[0] is True:
-            # run has finished so backup all files left in the queue
-            while backup_q.empty() is False:
-                file = backup_q.get()
-
-                with put_ftp(ftphost) as ftp:
-                    ftp.uploadFile(file)
-
-                backup_q.task_done()
-
-            # reset the run complete flag
-            run_complete.append(False)
-        elif backup_q.qsize > 1:
-            # there is at least one finished file to backup
-            file = backup_q.get()
-
-            with put_ftp(ftphost) as ftp:
-                ftp.uploadFile(file)
-
-            backup_q.task_done()
-        else:
-            time.sleep(1)
+save_queue = queue.Queue()
 
 
 def on_message(mqttc, obj, msg):
@@ -264,10 +206,6 @@ def save_handler():
                 save_calibration(payload, topic_list[1], subtopic1)
             elif msg.topic == "measurement/run":
                 save_run_settings(payload)
-                run_complete.append(False)
-            elif msg.topic == "measurement/log":
-                if payload["msg"] == "Run complete!":
-                    run_complete.append(True)
         except:
             pass
 
@@ -284,11 +222,6 @@ if __name__ == "__main__":
         default="127.0.0.1",
         help="IP address or hostname for MQTT broker.",
     )
-    parser.add_argument(
-        "--ftphost",
-        type=str,
-        help="Full FTP server address and remote path for backup, e.g. ftp://[hostname]/[path]/",
-    )
 
     args = parser.parse_args()
 
@@ -298,10 +231,6 @@ if __name__ == "__main__":
 
     # start save handler thread
     threading.Thread(target=save_handler, daemon=True).start()
-
-    # start FTP backup thread if required
-    if args.ftphost is not None:
-        threading.Thread(target=ftp_backup, args=(args.ftphost,), daemon=True).start()
 
     # create mqtt client id
     client_id = f"saver-{uuid.uuid4().hex}"
