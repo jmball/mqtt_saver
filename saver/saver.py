@@ -187,29 +187,30 @@ def save_run_settings(payload):
 
     exp_timestamp = payload["args"]["run_name_suffix"]
 
-    run_args_path = folder.joinpath(f"run_args_{exp_timestamp}.yaml")
-    config_path = folder.joinpath(f"measurement_config_{exp_timestamp}.yaml")
+    run_args_path = folder.joinpath(f"run_args.yaml")
+    config_path = folder.joinpath(f"measurement_config.yaml")
+
+    # for the FTP backup queue
+    to_backup = []
 
     # save the device selection dataframe(s)
     for key in payload["args"]["pixel_data_object_names"]:
         df = payload["args"][key]
-        dfk = df[payload["args"]["pix_cols_to_save"]] #keep only the whitelisted cols
-        save_path = folder.joinpath(f"{df.index.name}_pixel_setup_{exp_timestamp}.csv")
-        dfk.to_csv(save_path)
+        save_path = folder.joinpath(f"{df.index.name}_pixel_setup.csv")
+        df.to_csv(save_path)
         # we've handled this data now, don't want to save it twice
         del payload["args"][key]
-        backup_q.put(save_path)
+        to_backup.append(save_path)
 
     # save args
     with open(run_args_path, "w") as f:
         yaml.dump(payload["args"], f)
-    backup_q.put(run_args_path)
+    to_backup.append(run_args_path)
 
     # save config
     with open(config_path, "w") as f:
         yaml.dump(payload["config"], f)
-    backup_q.put(config_path)
-
+    to_backup.append(config_path)
 
 def ftp_backup(ftphost):
     """Backup files using FTP.
@@ -220,32 +221,32 @@ def ftp_backup(ftphost):
         Full FTP server address and remote path for backup, e.g.
         'ftp://[hostname]/[path]/'.
     """
+    dest_folder = pathlib.PurePurePosixPath("/dump")  # folder in server to upload to
     while True:
         if run_complete[0] is True:
             # run has finished so backup all files left in the queue
             while backup_q.empty() is False:
-                send_backup_file(backup_q.get(), ftphost)
+                file = backup_q.get()
+
+                with put_ftp(ftphost) as ftp:
+                    with open(file, 'rb') as fh:
+                        ftp.uploadFile(fh, remote_path=str(dest_folder / PurePurePosixPath(file.parent) +'/'))
+
                 backup_q.task_done()
 
             # reset the run complete flag
             run_complete.append(False)
         elif backup_q.qsize() > 1:
             # there is at least one finished file to backup
-            send_backup_file(backup_q.get(), ftphost)
+            file = backup_q.get()
+
+            with put_ftp(ftphost) as ftp:
+                with open(file, 'rb') as fh:
+                    ftp.uploadFile(fh, remote_path=str(dest_folder / PurePurePosixPath(file.parent) +'/'))
+
             backup_q.task_done()
         else:
             time.sleep(1)
-
-
-def send_backup_file(source, dest):
-    protocol, address = dest.split('://')
-    host, dest_path = address.split('/', 1)
-    ftphost = f"{protocol}://{host}"
-    dest_folder = pathlib.PurePosixPath("/"+dest_path)
-    dest_folder = (dest_folder / source.parent)
-    with put_ftp(ftphost) as ftp:
-        with open(source, 'rb') as fh:
-            ftp.uploadFile(fh, remote_path=str(dest_folder) + '/')
 
 
 def on_message(mqttc, obj, msg):
