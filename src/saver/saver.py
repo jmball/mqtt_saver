@@ -9,6 +9,14 @@ import threading
 import time
 import uuid
 
+import logging
+
+# for logging directly to systemd journal if we can
+try:
+    import systemd.journal
+except ImportError:
+    pass
+
 from datetime import datetime
 
 try:
@@ -17,7 +25,6 @@ except ImportError:
     pass
 
 import paho.mqtt.client as mqtt
-import paho.mqtt.publish as publish
 import yaml
 import os
 import sys
@@ -26,7 +33,40 @@ import argparse
 
 
 class Saver(object):
-    def __init__(self):
+    ftp_env_var = "SAVER_FTP"
+
+    def __init__(self, mqtt_host="127.0.0.1", ftp_uri=None):
+        # setup logging
+        logname = __name__
+        if __package__ in __name__:
+            # log at the package level if the imports are all correct
+            logname = __package__
+        self.lg = logging.getLogger(logname)
+        self.lg.setLevel(logging.DEBUG)
+
+        if not self.lg.hasHandlers():
+            # set up a logging handler for passing messages to the UI log window
+            uih = logging.Handler()
+            uih.setLevel(logging.INFO)
+            uih.emit = self.send_log_msg
+            self.lg.addHandler(uih)
+
+            # set up logging to systemd's journal if it's there
+            if "systemd" in sys.modules:
+                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+                sysdl.setFormatter(sysLogFormat)
+                self.lg.addHandler(sysdl)
+            else:
+                # for logging to stdout & stderr
+                ch = logging.StreamHandler()
+                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+                ch.setFormatter(logFormat)
+                self.lg.addHandler(ch)
+
+        self.mqtt_host = mqtt_host
+        self.ftp_uri = ftp_uri
+
         # make header strings
         eqe_header_items = [
             "timestamp (s)",
@@ -55,9 +95,6 @@ class Saver(object):
 
         self.daq_header = "timestamp (s)\tT (degC)\tIntensity (V)\n"
 
-        # queue latest file names for optional FTP backup in worker thread
-        self.backup_q = queue.Queue()
-
         # flag whether a run is complete (use deque for thread-safety)
         self.run_complete = collections.deque(maxlen=1)
         self.run_complete.append(False)
@@ -69,9 +106,24 @@ class Saver(object):
         self.exp_timestamp = ""
 
         if "centralcontrol.put_ftp" in sys.modules:
-            self.ftp_support = True
+            # queue latest file names for optional FTP backup in worker thread
+            self.backup_q = queue.Queue()
         else:
-            self.ftp_support = False
+            self.backup_q = None
+            self.lg.debug("FTP backup support missing.")
+
+        # create mqtt client id
+        self.client_id = f"saver-{uuid.uuid4().hex}"
+
+        self.mqttc = mqtt.Client(self.client_id)
+        self.mqttc.will_set("saver/status", pickle.dumps(f"{self.client_id} offline"), 2, retain=True)
+        self.mqttc.on_message = self.on_message
+        self.mqttc.on_connect = self.on_connect
+
+    # send up a log message to the status channel
+    def send_log_msg(self, record):
+        payload = {"level": record.levelno, "msg": record.msg}
+        self.outq.put({"topic": "measurement/log", "payload": pickle.dumps(payload), "qos": 2})
 
     def save_data(self, payload, kind, processed=False):
         """Save data to text file.
@@ -219,7 +271,7 @@ class Saver(object):
 
             # trigger FTP backup of cal file
             self.backup_q.put(save_path)
-            self.run_complete.append(True)
+            # self.run_complete.append(True)
 
     def save_run_settings(self, payload):
         """Save arguments parsed to server run command.
@@ -266,7 +318,7 @@ class Saver(object):
             yaml.dump(payload["config"], f)
         self.backup_q.put(config_path)
 
-    def ftp_backup(self, ftphost):
+    def ftp_backup(self, ftp_uri):
         """Backup files using FTP.
 
         Parameters
@@ -279,14 +331,19 @@ class Saver(object):
             if self.run_complete[0] == True:
                 # run has finished so backup all files left in the queue
                 while self.backup_q.empty() == False:
-                    self.send_backup_file(self.backup_q.get(), ftphost)
+                    file_to_send = self.backup_q.get()
+                    try:
+                        self.send_backup_file(file_to_send, ftp_uri)
+                    except Exception as e:
+                        self.lg.warning(f"Temporary data backup failure. Retrying...")
+                        self.backup_q.put(file_to_send)  # requeue it for later
                     self.backup_q.task_done()
 
                 # reset the run complete flag
                 self.run_complete.append(False)
             # elif self.backup_q.qsize() > 1:
             #     # there is at least one finished file to backup
-            #     self.send_backup_file(self.backup_q.get(), ftphost)
+            #     self.send_backup_file(self.backup_q.get(), ftp_uri)
             #     self.backup_q.task_done()
             else:
                 time.sleep(1)
@@ -307,6 +364,7 @@ class Saver(object):
 
     def save_handler(self):
         """Handle cmds to saver."""
+        self.lg.debug(f"Saving to {os.getcwd()}")
         while True:
             msg = self.save_queue.get()
 
@@ -327,7 +385,7 @@ class Saver(object):
                     self.save_calibration(payload, topic_list[1], subtopic1)
                 elif msg.topic == "measurement/run":
                     self.save_run_settings(payload)
-                    self.run_complete.append(False)
+                    # self.run_complete.append(False)
                 elif msg.topic == "measurement/log":
                     if payload["msg"] == "Run complete!":
                         self.run_complete.append(True)
@@ -336,69 +394,50 @@ class Saver(object):
 
             self.save_queue.task_done()
 
-    def main(self):
+    def mqtt_connector(self, mqttc):
+        while True:
+            mqttc.connect(self.mqtt_host)
+            mqttc.loop_forever(retry_first_connection=True)
 
-        parser = argparse.ArgumentParser()
-        parser.add_argument(
-            "--mqtthost",
-            type=str,
-            nargs="?",
-            default="127.0.0.1",
-            const="127.0.0.1",
-            help="IP address or hostname for MQTT broker.",
-        )
-        parser.add_argument(
-            "--ftphost",
-            type=str,
-            help="Full FTP server address and remote path for backup, e.g. ftp://[hostname]/[path]/",
-        )
+    def on_connect(self, client, userdata, flags, rc):
+        self.lg.debug(f"{self.client_id} connected to broker with result code {rc}")
+        self.mqttc.subscribe("data/#", qos=2)
+        self.mqttc.subscribe("calibration/#", qos=2)
+        self.mqttc.subscribe("measurement/#", qos=2)
+        self.mqttc.publish("saver/status", pickle.dumps(f"{self.client_id} ready"), qos=2)
 
-        args = parser.parse_args()
-
-        # start save handler thread
-        threading.Thread(target=self.save_handler, daemon=True).start()
+    def run(self):
+        # start the mqtt connector thread
+        threading.Thread(target=self.mqtt_connector, args=(self.mqttc,), daemon=True).start()
 
         # start FTP backup thread if required
-        ftp_env_var = "SAVER_FTP"
-        if args.ftphost is not None:
-            ftp_addr = args.ftphost
-        elif ftp_env_var in os.environ:
-            ftp_addr = os.environ.get(ftp_env_var)
+        if (self.ftp_uri is not None) and (self.backup_q is not None):
+            threading.Thread(target=self.ftp_backup, args=(self.ftp_uri,), daemon=True).start()
+            self.lg.debug(f"FTP backup active to {self.ftp_uri}")
         else:
-            ftp_addr = None
+            self.lg.debug("FTP backup not in use")
 
-        if ftp_addr is not None:
-            if self.ftp_support == True:
-                threading.Thread(target=self.ftp_backup, args=(ftp_addr,), daemon=True).start()
-                print(f"FTP backup enabled: {ftp_addr}")
-            else:
-                print("WARNING: unable to enable FTP backup")
-
-        # create mqtt client id
-        client_id = f"saver-{uuid.uuid4().hex}"
-
-        mqttc = mqtt.Client(client_id)
-        mqttc.will_set("saver/status", pickle.dumps(f"{client_id} offline"), 2, retain=True)
-        mqttc.on_message = self.on_message
-        mqttc.connect(args.mqtthost)
-        mqttc.subscribe("data/#", qos=2)
-        mqttc.subscribe("calibration/#", qos=2)
-        mqttc.subscribe("measurement/#", qos=2)
-        publish.single(
-            "saver/status",
-            pickle.dumps(f"{client_id} ready"),
-            qos=2,
-            hostname=args.mqtthost,
-        )
-        print(f"{client_id} connected!")
-        print(f"Saving to {os.getcwd()}")
-        mqttc.loop_forever()
+        # start save handler
+        self.save_handler()
 
 
-def run():
-    s = Saver()
-    s.main()
+def main():
+    parser = argparse.ArgumentParser(description="MQTT Saver")
+    parser.add_argument("--mqtt-host", type=str, nargs="?", default="127.0.0.1", const="127.0.0.1", help="IP address or hostname for MQTT broker.")
+    parser.add_argument("--ftp-uri", type=str, help="Full FTP server address and remote path for backup, e.g. ftp://[hostname]/[path]/")
+
+    args = parser.parse_args()
+    ftp_uri_env_var_name = Saver.ftp_env_var
+    if args.ftp_uri is not None:
+        ftp_uri = args.ftp_uri
+    elif ftp_uri_env_var_name in os.environ:
+        ftp_uri = os.environ.get(ftp_uri_env_var_name)
+    else:
+        ftp_uri = None
+
+    s = Saver(mqtt_host=args.mqtt_host, ftp_uri=ftp_uri)
+    s.run()
 
 
 if __name__ == "__main__":
-    run()
+    main()
