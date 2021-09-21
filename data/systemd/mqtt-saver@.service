@@ -4,7 +4,7 @@ Description=The data saver service
 [Service]
 WorkingDirectory=-%h/data
 #EnvironmentFile=-%h/.config/saver_env.txt
-ExecStart=/usr/bin/mqtt-saver --mqtthost %i
+ExecStart=/usr/bin/mqtt-saver --mqtt-host %i
 RestartSec=3
 Restart=always
 PrivateTmp=true
