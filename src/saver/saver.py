@@ -330,17 +330,16 @@ class Saver(object):
         while True:
             if self.run_complete[0] == True:
                 # run has finished so backup all files left in the queue
-                while self.backup_q.empty() == False:
+                while not self.backup_q.empty():
                     file_to_send = self.backup_q.get()
                     try:
                         self.send_backup_file(file_to_send, ftp_uri)
                     except Exception as e:
                         self.lg.warning(f"Temporary data backup failure. Retrying...")
                         self.backup_q.put(file_to_send)  # requeue it for later
-                    self.backup_q.task_done()
 
-                # reset the run complete flag
-                self.run_complete.append(False)
+                self.lg.debug("FTP backup complete.")
+                self.run_complete.append(False)  # reset the run complete flag
             # elif self.backup_q.qsize() > 1:
             #     # there is at least one finished file to backup
             #     self.send_backup_file(self.backup_q.get(), ftp_uri)
