@@ -25,43 +25,53 @@ import sys
 import argparse
 
 
-class Saver:
-    # make header strings
-    eqe_header = (
-        "timestamp (s)\twavelength (nm)\tX (V)\tY (V)\tAux In 1 (V)\tAux"
-        + " In 2 (V)\tAux In 3 (V)\tAux In 4 (V)\tR (V)\tPhase (deg)\tFreq"
-        + " (Hz)\tCh1 display\tCh2 display\n"
-    )
-    eqe_processed_header = eqe_header[:-1] + "\tEQE\n"
+class Saver(object):
+    def __init__(self):
+        # make header strings
+        eqe_header_items = [
+            "timestamp (s)",
+            "wavelength (nm)",
+            "X (V)",
+            "Y (V)",
+            "Aux In 1 (V)",
+            "Aux In 2 (V)",
+            "Aux In 3 (V)",
+            "Aux In 4 (V)",
+            "R (V)",
+            "Phase (deg)",
+            "Freq (Hz)",
+            "Ch1 display",
+            "Ch2 display",
+        ]
+        self.eqe_header = "\t".join(eqe_header_items) + "\n"
+        self.eqe_processed_header = self.eqe_header[:-1] + "\tEQE\n"
 
-    iv_header = "voltage (v)\tcurrent (A)\ttime (s)\tstatus\n"
-    iv_processed_header = (
-        iv_header[:-1] + "\tcurrent_density (mA/cm^2)\tpower_density (mW/cm^2)\n"
-    )
+        self.iv_header = "voltage (v)\tcurrent (A)\ttime (s)\tstatus\n"
+        self.iv_processed_header = self.iv_header[:-1] + "\tcurrent_density (mA/cm^2)\tpower_density (mW/cm^2)\n"
 
-    spectrum_cal_header = "wls (nm)\traw (counts)\n"
+        self.spectrum_cal_header = "wls (nm)\traw (counts)\n"
 
-    psu_cal_header = iv_header[:-1] + "\tset_psu_current (A)\n"
+        self.psu_cal_header = self.iv_header[:-1] + "\tset_psu_current (A)\n"
 
-    daq_header = "timestamp (s)\tT (degC)\tIntensity (V)\n"
+        self.daq_header = "timestamp (s)\tT (degC)\tIntensity (V)\n"
 
-    # queue latest file names for optional FTP backup in worker thread
-    backup_q = queue.Queue()
+        # queue latest file names for optional FTP backup in worker thread
+        self.backup_q = queue.Queue()
 
-    # flag whether a run is complete (use deque for thread-safety)
-    run_complete = collections.deque(maxlen=1)
-    run_complete.append(False)
+        # flag whether a run is complete (use deque for thread-safety)
+        self.run_complete = collections.deque(maxlen=1)
+        self.run_complete.append(False)
 
-    # add incoming mqtt messages to a queue for worker thread
-    save_queue = queue.Queue()
+        # add incoming mqtt messages to a queue for worker thread
+        self.save_queue = queue.Queue()
 
-    folder = None
-    exp_timestamp = ""
+        self.folder = None
+        self.exp_timestamp = ""
 
-    if "centralcontrol.put_ftp" in sys.modules:
-        ftp_support = True
-    else:
-        ftp_support = False
+        if "centralcontrol.put_ftp" in sys.modules:
+            self.ftp_support = True
+        else:
+            self.ftp_support = False
 
     def save_data(self, payload, kind, processed=False):
         """Save data to text file.
@@ -90,7 +100,7 @@ class Saver:
             save_folder = pathlib.Path()
 
         # append processed sub folder to path if applicable
-        if processed is True:
+        if processed == True:
             save_folder = save_folder.joinpath("processed")
             save_folder.mkdir(parents=True, exist_ok=True)
             file_prefix = "processed_"
@@ -113,36 +123,32 @@ class Saver:
             while True:
                 test_exp = exp + str(i)
 
-                test_path = save_folder.joinpath(
-                    f"{file_prefix}{idn}_{self.exp_timestamp}.{test_exp}.tsv"
-                )
+                test_path = save_folder.joinpath(f"{file_prefix}{idn}_{self.exp_timestamp}.{test_exp}.tsv")
 
-                if test_path.exists() is False:
+                if test_path.exists() == False:
                     exp = test_exp
                     break
                 else:
                     i += 1
 
         # build save path
-        save_path = save_folder.joinpath(
-            f"{file_prefix}{idn}_{self.exp_timestamp}.{exp}.tsv"
-        )
+        save_path = save_folder.joinpath(f"{file_prefix}{idn}_{self.exp_timestamp}.{exp}.tsv")
 
         # create file with header if pixel
-        if save_path.exists() is False:
+        if save_path.exists() == False:
             print(f"New save path: {save_path}")
             # append file name for backup
             self.backup_q.put(save_path)
             with open(save_path, "w", newline="\n") as f:
                 if exp == "eqe":
-                    if processed is True:
+                    if processed == True:
                         f.writelines(self.eqe_processed_header)
                     else:
                         f.writelines(self.eqe_header)
                 elif exp == "daq":
                     f.writelines(self.daq_header)
                 else:
-                    if processed is True:
+                    if processed == True:
                         f.writelines(self.iv_processed_header)
                     else:
                         f.writelines(self.iv_header)
@@ -178,9 +184,7 @@ class Saver:
         # local timezone
         timezone = datetime.now().astimezone().tzinfo
         fmt = "%Y-%m-%d_%H-%M-%S_%z"
-        human_timestamp = datetime.fromtimestamp(timestamp, tz=timezone).strftime(
-            f"{fmt}"
-        )
+        human_timestamp = datetime.fromtimestamp(timestamp, tz=timezone).strftime(f"{fmt}")
 
         data = payload["data"]
 
@@ -203,12 +207,10 @@ class Saver:
             header = self.iv_header
         elif kind == "psu":
             idn = payload["diode"]
-            save_path = save_folder.joinpath(
-                f"{human_timestamp}_{idn}_{extra}.{kind}.cal.tsv"
-            )
+            save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_{extra}.{kind}.cal.tsv")
             header = self.psu_cal_header
 
-        if save_path.exists() is False:
+        if save_path.exists() == False:
             with open(save_path, "w", newline="\n") as f:
                 f.writelines(header)
             with open(save_path, "a", newline="\n") as f:
@@ -233,9 +235,7 @@ class Saver:
         self.exp_timestamp = payload["args"]["run_name_suffix"]
 
         run_args_path = self.folder.joinpath(f"run_args_{self.exp_timestamp}.yaml")
-        config_path = self.folder.joinpath(
-            f"measurement_config_{self.exp_timestamp}.yaml"
-        )
+        config_path = self.folder.joinpath(f"measurement_config_{self.exp_timestamp}.yaml")
 
         # save the device selection dataframe(s) if provided
         if "pixel_data_object_names" in payload["args"]:
@@ -245,15 +245,11 @@ class Saver:
                 # keep only the whitelisted cols
                 dfk = df[payload["args"]["pix_cols_to_save"]]
 
-                save_path = self.folder.joinpath(
-                    f"{df.index.name}_pixel_setup_{self.exp_timestamp}.csv"
-                )
+                save_path = self.folder.joinpath(f"{df.index.name}_pixel_setup_{self.exp_timestamp}.csv")
 
                 # handle custom area overrides for the csv (if any)
                 dfk["area"] = dfk["area"].replace(-1, payload["args"]["a_ovr_spin"])
-                dfk["dark_area"] = dfk["dark_area"].replace(
-                    -1, payload["args"]["a_ovr_spin"]
-                )
+                dfk["dark_area"] = dfk["dark_area"].replace(-1, payload["args"]["a_ovr_spin"])
 
                 dfk.to_csv(save_path)
                 # we've handled this data now, don't want to save it twice
@@ -280,9 +276,9 @@ class Saver:
             'ftp://[hostname]/[path]/'.
         """
         while True:
-            if self.run_complete[0] is True:
+            if self.run_complete[0] == True:
                 # run has finished so backup all files left in the queue
-                while self.backup_q.empty() is False:
+                while self.backup_q.empty() == False:
                     self.send_backup_file(self.backup_q.get(), ftphost)
                     self.backup_q.task_done()
 
@@ -322,9 +318,7 @@ class Saver:
                     if (subtopic0 := topic_list[1]) == "raw":
                         self.save_data(payload, msg.topic.replace("data/raw/", ""))
                     elif subtopic0 == "processed":
-                        self.save_data(
-                            payload, msg.topic.replace("data/processed/", ""), True
-                        )
+                        self.save_data(payload, msg.topic.replace("data/processed/", ""), True)
                 elif topic == "calibration":
                     if topic_list[1] == "psu":
                         subtopic1 = topic_list[2]
@@ -375,9 +369,7 @@ class Saver:
 
         if ftp_addr is not None:
             if self.ftp_support == True:
-                threading.Thread(
-                    target=self.ftp_backup, args=(ftp_addr,), daemon=True
-                ).start()
+                threading.Thread(target=self.ftp_backup, args=(ftp_addr,), daemon=True).start()
                 print(f"FTP backup enabled: {ftp_addr}")
             else:
                 print("WARNING: unable to enable FTP backup")
@@ -386,9 +378,7 @@ class Saver:
         client_id = f"saver-{uuid.uuid4().hex}"
 
         mqttc = mqtt.Client(client_id)
-        mqttc.will_set(
-            "saver/status", pickle.dumps(f"{client_id} offline"), 2, retain=True
-        )
+        mqttc.will_set("saver/status", pickle.dumps(f"{client_id} offline"), 2, retain=True)
         mqttc.on_message = self.on_message
         mqttc.connect(args.mqtthost)
         mqttc.subscribe("data/#", qos=2)

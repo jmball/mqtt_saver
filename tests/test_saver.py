@@ -211,9 +211,7 @@ test_config = {
 
 
 def test_saver():
-    mqttc.publish(
-        "measurement/run", pickle.dumps({"args": test_args, "config": test_config}), 2
-    ).wait_for_publish()
+    mqttc.publish("measurement/run", pickle.dumps({"args": test_args, "config": test_config}), 2).wait_for_publish()
 
     raw_iv_data = [[0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3]]
 
@@ -284,44 +282,64 @@ def test_saver():
     # simulate writing a few lines to a single file
     for i in range(5):
         mqttc.publish(
-            "data/raw/vt_measurement", pickle.dumps(raw_ivt_payload), 2,
+            "data/raw/vt_measurement",
+            pickle.dumps(raw_ivt_payload),
+            2,
         ).wait_for_publish()
 
         mqttc.publish(
-            "data/raw/it_measurement", pickle.dumps(raw_ivt_payload), 2,
+            "data/raw/it_measurement",
+            pickle.dumps(raw_ivt_payload),
+            2,
         ).wait_for_publish()
 
         mqttc.publish(
-            "data/raw/mppt_measurement", pickle.dumps(raw_ivt_payload), 2,
+            "data/raw/mppt_measurement",
+            pickle.dumps(raw_ivt_payload),
+            2,
         ).wait_for_publish()
 
         mqttc.publish(
-            "data/raw/eqe_measurement", pickle.dumps(raw_eqe_payload), 2,
+            "data/raw/eqe_measurement",
+            pickle.dumps(raw_eqe_payload),
+            2,
         ).wait_for_publish()
 
     mqttc.publish(
-        "data/raw/iv_measurement", pickle.dumps(raw_iv_payload), 2,
+        "data/raw/iv_measurement",
+        pickle.dumps(raw_iv_payload),
+        2,
     ).wait_for_publish()
 
     for i in range(5):
         mqttc.publish(
-            "data/processed/vt_measurement", pickle.dumps(processed_ivt_payload), 2,
+            "data/processed/vt_measurement",
+            pickle.dumps(processed_ivt_payload),
+            2,
         ).wait_for_publish()
 
         mqttc.publish(
-            "data/processed/it_measurement", pickle.dumps(processed_ivt_payload), 2,
+            "data/processed/it_measurement",
+            pickle.dumps(processed_ivt_payload),
+            2,
         ).wait_for_publish()
 
         mqttc.publish(
-            "data/processed/mppt_measurement", pickle.dumps(processed_ivt_payload), 2,
+            "data/processed/mppt_measurement",
+            pickle.dumps(processed_ivt_payload),
+            2,
         ).wait_for_publish()
 
         mqttc.publish(
-            "data/processed/eqe_measurement", pickle.dumps(processed_eqe_payload), 2,
+            "data/processed/eqe_measurement",
+            pickle.dumps(processed_eqe_payload),
+            2,
         ).wait_for_publish()
 
     mqttc.publish(
-        "data/processed/iv_measurement", pickle.dumps(processed_iv_payload), 2,
+        "data/processed/iv_measurement",
+        pickle.dumps(processed_iv_payload),
+        2,
     ).wait_for_publish()
 
 
