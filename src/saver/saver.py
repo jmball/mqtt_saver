@@ -188,7 +188,7 @@ class Saver(object):
 
         # create file with header if pixel
         if save_path.exists() == False:
-            print(f"New save path: {save_path}")
+            self.lg.debug(f"New save path: {save_path}")
             # append file name for backup
             self.backup_q.put(save_path)
             with open(save_path, "w", newline="\n") as f:
@@ -206,7 +206,7 @@ class Saver(object):
                         f.writelines(self.iv_header)
 
         if payload["data"] == []:
-            print("EMPTY PAYLOAD")
+            self.lg.debug("EMPTY PAYLOAD")
 
         # append data to file
         with open(save_path, "a", newline="\n") as f:
