@@ -6,6 +6,7 @@ import pathlib
 import pickle
 import queue
 import threading
+import queue
 import time
 import uuid
 
@@ -36,9 +37,12 @@ class Saver(object):
     ftp_env_var = "SAVER_FTP"
 
     def __init__(self, mqtt_host="127.0.0.1", ftp_uri=None):
+
+        self.outq = queue.Queue()
+
         # setup logging
         logname = __name__
-        if __package__ in __name__:
+        if (__package__ is not None) and (__package__ in __name__):
             # log at the package level if the imports are all correct
             logname = __package__
         self.lg = logging.getLogger(logname)
@@ -46,6 +50,7 @@ class Saver(object):
 
         if not self.lg.hasHandlers():
             # set up a logging handler for passing messages to the UI log window
+
             uih = logging.Handler()
             uih.setLevel(logging.INFO)
             uih.emit = self.send_log_msg
@@ -293,15 +298,15 @@ class Saver(object):
         if "pixel_data_object_names" in payload["args"]:
             for key in payload["args"]["pixel_data_object_names"]:
                 df = payload["args"][key]
+                name = df.index.name
 
                 # keep only the whitelisted cols
-                dfk = df[payload["args"]["pix_cols_to_save"]]
+                dfk = df.loc[:, payload["args"]["pix_cols_to_save"]]
 
-                save_path = self.folder.joinpath(f"{df.index.name}_pixel_setup_{self.exp_timestamp}.csv")
+                save_path = self.folder.joinpath(f"{name}_pixel_setup_{self.exp_timestamp}.csv")
 
                 # handle custom area overrides for the csv (if any)
-                dfk["area"] = dfk["area"].replace(-1, payload["args"]["a_ovr_spin"])
-                dfk["dark_area"] = dfk["dark_area"].replace(-1, payload["args"]["a_ovr_spin"])
+                dfk.replace({"area": -1, "dark_area":-1}, payload["args"]["a_ovr_spin"], inplace=True)
 
                 dfk.to_csv(save_path)
                 # we've handled this data now, don't want to save it twice
@@ -398,6 +403,12 @@ class Saver(object):
             mqttc.connect(self.mqtt_host)
             mqttc.loop_forever(retry_first_connection=True)
 
+    # relays outgoing messages
+    def out_relay(self):
+        while True:
+            to_send = self.outq.get()
+            self.mqttc.publish(**to_send).wait_for_publish()  # TODO: test removal of publish wait
+
     def on_connect(self, client, userdata, flags, rc):
         self.lg.debug(f"{self.client_id} connected to broker with result code {rc}")
         self.mqttc.subscribe("data/#", qos=2)
@@ -415,6 +426,9 @@ class Saver(object):
             self.lg.debug(f"FTP backup active to {self.ftp_uri}")
         else:
             self.lg.debug("FTP backup not in use")
+
+        # start output relay
+        threading.Thread(target=self.out_relay, daemon=True).start()
 
         # start save handler
         self.save_handler()
