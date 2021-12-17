@@ -108,7 +108,7 @@ class Saver(object):
         self.save_queue = queue.Queue()
 
         self.folder = None
-        self.exp_timestamp = ""
+        self.exp_timestamp = None
 
         if "centralcontrol.put_ftp" in sys.modules:
             # queue latest file names for optional FTP backup in worker thread
@@ -124,6 +124,7 @@ class Saver(object):
         self.mqttc.will_set("saver/status", pickle.dumps(f"{self.client_id} offline"), 2, retain=True)
         self.mqttc.on_message = self.on_message
         self.mqttc.on_connect = self.on_connect
+        self.mqttc.on_disconnect = self.on_disconnect
 
     # send up a log message to the status channel
     def send_log_msg(self, record):
@@ -150,6 +151,10 @@ class Saver(object):
             exp_prefix = ""
         exp = f"{exp_prefix}{kind.replace('_measurement', '')}"
 
+        # handle missing timestamp
+        if self.exp_timestamp is None:
+            raise ValueError("Unable to complete save since there's no epoch. Possibly missed the run start message.")
+
         # get master save folder
         if self.folder is not None:
             save_folder = self.folder
@@ -169,10 +174,10 @@ class Saver(object):
             label = payload["pixel"]["label"]
             pixel = payload["pixel"]["pixel"]
             idn = f"{label}_device{pixel}"
-        except KeyError:
-            label = ""
-            pixel = ""
-            idn = ""
+        except Exception as e:
+            idn = "unknown_deviceX"
+            self.lg.debug(f"Payload parse error: {e}")
+            self.lg.debug(f"Using {idn=}")
 
         # automatically increment iv scan extension
         if exp.startswith("liv") or exp.startswith("div"):
@@ -194,9 +199,10 @@ class Saver(object):
         # create file with header if pixel
         if save_path.exists() == False:
             self.lg.debug(f"New save path: {save_path}")
-            # append file name for backup
-            self.backup_q.put(save_path)
-            with open(save_path, "w", newline="\n") as f:
+            if self.ftp_uri is not None:
+                # append file name for backup
+                self.backup_q.put(save_path)
+            with open(save_path, "x", newline="\n") as f:
                 if exp == "eqe":
                     if processed == True:
                         f.writelines(self.eqe_processed_header)
@@ -268,14 +274,15 @@ class Saver(object):
             header = self.psu_cal_header
 
         if save_path.exists() == False:
-            with open(save_path, "w", newline="\n") as f:
+            with open(save_path, "x", newline="\n") as f:
                 f.writelines(header)
             with open(save_path, "a", newline="\n") as f:
                 writer = csv.writer(f, delimiter="\t")
                 writer.writerows(data)
 
             # trigger FTP backup of cal file
-            self.backup_q.put(save_path)
+            if self.ftp_uri is not None:
+                self.backup_q.put(save_path)
             # self.run_complete.append(True)
 
     def save_run_settings(self, payload):
@@ -287,7 +294,7 @@ class Saver(object):
             Arguments parsed to server run command.
         """
         self.folder = pathlib.Path(payload["args"]["run_name"])
-        self.folder.mkdir(parents=True, exist_ok=True)
+        self.folder.mkdir(parents=True, exist_ok=False)
 
         self.exp_timestamp = payload["args"]["run_name_suffix"]
 
@@ -306,22 +313,25 @@ class Saver(object):
                 save_path = self.folder.joinpath(f"{name}_pixel_setup_{self.exp_timestamp}.csv")
 
                 # handle custom area overrides for the csv (if any)
-                dfk.replace({"area": -1, "dark_area":-1}, payload["args"]["a_ovr_spin"], inplace=True)
+                dfk.replace({"area": -1, "dark_area": -1}, payload["args"]["a_ovr_spin"], inplace=True)
 
-                dfk.to_csv(save_path)
+                dfk.to_csv(save_path, mode="x")
                 # we've handled this data now, don't want to save it twice
                 del payload["args"][key]
-                self.backup_q.put(save_path)
+                if self.ftp_uri is not None:
+                    self.backup_q.put(save_path)
 
         # save args
-        with open(run_args_path, "w") as f:
+        with open(run_args_path, "x") as f:
             yaml.dump(payload["args"], f)
-        self.backup_q.put(run_args_path)
+        if self.ftp_uri is not None:
+            self.backup_q.put(run_args_path)
 
         # save config
-        with open(config_path, "w") as f:
+        with open(config_path, "x") as f:
             yaml.dump(payload["config"], f)
-        self.backup_q.put(config_path)
+        if self.ftp_uri is not None:
+            self.backup_q.put(config_path)
 
     def ftp_backup(self, ftp_uri):
         """Backup files using FTP.
@@ -340,8 +350,10 @@ class Saver(object):
                     try:
                         self.send_backup_file(file_to_send, ftp_uri)
                     except Exception as e:
+                        self.lg.debug(e)
                         self.lg.warning(f"Temporary data backup failure. Retrying...")
                         self.backup_q.put(file_to_send)  # requeue it for later
+                        time.sleep(1)  # don't spam backup tries
 
                 self.lg.debug("FTP backup complete.")
                 self.run_complete.append(False)  # reset the run complete flag
@@ -350,7 +362,7 @@ class Saver(object):
             #     self.send_backup_file(self.backup_q.get(), ftp_uri)
             #     self.backup_q.task_done()
             else:
-                time.sleep(1)
+                time.sleep(1)  # don't spam run complete check
 
     def send_backup_file(self, source, dest):
         protocol, address = dest.split("://")
@@ -375,26 +387,34 @@ class Saver(object):
             try:
                 payload = pickle.loads(msg.payload)
                 topic_list = msg.topic.split("/")
+                topic = topic_list[0]
 
-                if (topic := topic_list[0]) == "data":
-                    if (subtopic0 := topic_list[1]) == "raw":
+                if topic == "data":
+                    subtopic0 = topic_list[1]
+                    if subtopic0 == "raw":
                         self.save_data(payload, msg.topic.replace("data/raw/", ""))
                     elif subtopic0 == "processed":
                         self.save_data(payload, msg.topic.replace("data/processed/", ""), True)
+                    else:
+                        self.lg.debug(f"Saver not acting on data subtopic: {subtopic0}")
                 elif topic == "calibration":
-                    if topic_list[1] == "psu":
+                    subtopic0 = topic_list[1]
+                    if subtopic0 == "psu":
                         subtopic1 = topic_list[2]
                     else:
                         subtopic1 = None
-                    self.save_calibration(payload, topic_list[1], subtopic1)
+                    self.save_calibration(payload, subtopic0, subtopic1)
                 elif msg.topic == "measurement/run":
                     self.save_run_settings(payload)
                     # self.run_complete.append(False)
                 elif msg.topic == "measurement/log":
                     if payload["msg"] == "Run complete!":
+                        self.exp_timestamp = None  # reset the run timestamp
                         self.run_complete.append(True)
-            except:
-                pass
+                else:
+                    self.lg.debug(f"Saver not acting on topic: {msg.topic}")
+            except Exception as e:
+                self.lg.warning(f"Data save issue: {e}")
 
             self.save_queue.task_done()
 
@@ -415,6 +435,9 @@ class Saver(object):
         self.mqttc.subscribe("calibration/#", qos=2)
         self.mqttc.subscribe("measurement/#", qos=2)
         self.mqttc.publish("saver/status", pickle.dumps(f"{self.client_id} ready"), qos=2)
+
+    def on_disconnect(self, client, userdata, rc):
+        print(f"{self.client_id} disconnected from broker with result code {rc}")
 
     def run(self):
         # start the mqtt connector thread
