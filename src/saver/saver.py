@@ -161,6 +161,12 @@ class Saver(object):
         else:
             save_folder = pathlib.Path()
 
+        if save_folder.exists() == False:
+            self.lg.warning(f"We got new run data, but there's no existing run folder for it!")
+            self.lg.warning(f"That could mean the data folder was deleted mid-run or the saver missed the run start message.")
+            self.lg.warning(f"Saving into: {save_folder}")
+            save_folder.mkdir(parents=True, exist_ok=True)
+
         # append processed sub folder to path if applicable
         if processed == True:
             save_folder = save_folder.joinpath("processed")
@@ -410,6 +416,7 @@ class Saver(object):
                 elif msg.topic == "measurement/log":
                     if payload["msg"] == "Run complete!":
                         self.exp_timestamp = None  # reset the run timestamp
+                        self.folder = None  # reset the save folder
                         self.run_complete.append(True)
                 else:
                     self.lg.debug(f"Saver not acting on topic: {msg.topic}")
@@ -427,7 +434,7 @@ class Saver(object):
     def out_relay(self):
         while True:
             to_send = self.outq.get()
-            self.mqttc.publish(**to_send).wait_for_publish()  # TODO: test removal of publish wait
+            self.mqttc.publish(**to_send)
 
     def on_connect(self, client, userdata, flags, rc):
         self.lg.debug(f"{self.client_id} connected to broker with result code {rc}")
