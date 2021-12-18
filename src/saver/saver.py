@@ -153,19 +153,23 @@ class Saver(object):
 
         # handle missing timestamp
         if self.exp_timestamp is None:
-            raise ValueError("Unable to complete save since there's no epoch. Possibly missed the run start message.")
+            self.exp_timestamp = time.time()  # since we didn't get one, we'll make our own epoch
+            self.lg.warning(f"Got some new data with no epoch. Possibly missed the run start message.")
 
-        # get master save folder
-        if self.folder is not None:
-            save_folder = self.folder
-        else:
-            save_folder = pathlib.Path()
+        # deal with possible save folder issues
+        if self.folder is None:
+            self.lg.warning(f"We got new run data, but there's no place to put it!")
+            self.lg.warning(f"That could mean the saver missed the run start message.")
+            self.folder = pathlib.Path().joinpath(str(self.exp_timestamp))
+            self.lg.warning(f"Saving into {self.folder}")
 
-        if save_folder.exists() == False:
-            self.lg.warning(f"We got new run data, but there's no existing run folder for it!")
-            self.lg.warning(f"That could mean the data folder was deleted mid-run or the saver missed the run start message.")
-            self.lg.warning(f"Saving into: {save_folder}")
-            save_folder.mkdir(parents=True, exist_ok=True)
+        if self.folder.exists() == False:
+            self.lg.warning(f"We got new run data, but the folder for it is gone: {self.folder}")
+            self.lg.warning(f"That could mean the data folder was disappeared mid-run")
+            self.lg.warning(f"Regenerating that folder now.")
+            self.folder.mkdir(parents=True, exist_ok=False)
+
+        save_folder = self.folder
 
         # append processed sub folder to path if applicable
         if processed == True:
