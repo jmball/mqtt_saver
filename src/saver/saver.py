@@ -210,8 +210,7 @@ class Saver(object):
         if save_path.exists() == False:
             self.lg.debug(f"New save path: {save_path}")
             if self.ftp_uri is not None:
-                # append file name for backup
-                self.backup_q.put(save_path)
+                self.backup_q.put(save_path)  # append file name for backup
             with open(save_path, "x", newline="\n") as f:
                 if exp == "eqe":
                     if processed == True:
@@ -261,39 +260,46 @@ class Saver(object):
 
         data = payload["data"]
 
-        header = ""
-        save_path = pathlib.Path("/does/not/exist")
+        good_kind = False
         if kind == "eqe":
+            good_kind = True
             idn = payload["diode"]
             save_path = save_folder.joinpath(f"{human_timestamp}_{idn}.{kind}.cal.tsv")
             header = self.eqe_header
         elif kind == "spectrum":
+            good_kind = True
             save_path = save_folder.joinpath(f"{human_timestamp}.{kind}.cal.tsv")
             header = self.spectrum_cal_header
         elif kind == "solarsim_diode":
+            good_kind = True
             idn = payload["diode"]
             save_path = save_folder.joinpath(f"{human_timestamp}_{idn}.ss.cal.tsv")
             header = self.iv_header
         elif kind == "rtd":
+            good_kind = True
             idn = payload["diode"]
             save_path = save_folder.joinpath(f"{human_timestamp}_{idn}.{kind}.cal.tsv")
             header = self.iv_header
         elif kind == "psu":
+            good_kind = True
             idn = payload["diode"]
             save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_{extra}.{kind}.cal.tsv")
             header = self.psu_cal_header
 
-        if save_path.exists() == False:
-            with open(save_path, "x", newline="\n") as f:
-                f.writelines(header)
-            with open(save_path, "a", newline="\n") as f:
-                writer = csv.writer(f, delimiter="\t")
-                writer.writerows(data)
-
-            # trigger FTP backup of cal file
-            if self.ftp_uri is not None:
-                self.backup_q.put(save_path)
-            # self.run_complete.append(True)
+        if good_kind == True:
+            if save_path.exists() == False:
+                with open(save_path, "x", newline="\n") as f:
+                    f.writelines(header)
+                with open(save_path, "a", newline="\n") as f:
+                    writer = csv.writer(f, delimiter="\t")
+                    writer.writerows(data)
+                if self.ftp_uri is not None:
+                    # trigger FTP backup of cal file
+                    self.backup_q.put(save_path)
+            else:
+                self.lg.debug(f"Not saving cal data because a file for it already exists: {save_path=}")
+        else:
+            self.lg.debug(f"Not saving cal data because we don't understand its kind: {kind=}")
 
     def save_run_settings(self, payload):
         """Save arguments parsed to server run command.
