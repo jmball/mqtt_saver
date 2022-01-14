@@ -184,9 +184,7 @@ class Saver(object):
             if exp == "daq":  # daq type doesn't have pixel data
                 idn = "daq"
             else:
-                label = payload["pixel"]["label"]
-                pixel = payload["pixel"]["pixel"]
-                idn = f"{label}_device{pixel}"
+                idn = f'{payload["pixel"]["label"]}_device{payload["pixel"]["pixel"]}'
         except Exception as e:
             idn = "unknown_deviceX"
             self.lg.debug(f"Payload parse error: {e}")
