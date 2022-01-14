@@ -181,9 +181,12 @@ class Saver(object):
 
         # get device information for path if applicable
         try:
-            label = payload["pixel"]["label"]
-            pixel = payload["pixel"]["pixel"]
-            idn = f"{label}_device{pixel}"
+            if exp == "daq":  # daq type doesn't have pixel data
+                idn = "daq"
+            else:
+                label = payload["pixel"]["label"]
+                pixel = payload["pixel"]["pixel"]
+                idn = f"{label}_device{pixel}"
         except Exception as e:
             idn = "unknown_deviceX"
             self.lg.debug(f"Payload parse error: {e}")
