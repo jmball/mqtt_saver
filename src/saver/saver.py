@@ -101,8 +101,8 @@ class Saver(object):
         self.daq_header = "timestamp (s)\tT (degC)\tIntensity (V)\n"
 
         # flag whether a run is complete (use deque for thread-safety)
-        self.run_complete = collections.deque(maxlen=1)
-        self.run_complete.append(False)
+        self.trigger_backup = collections.deque(maxlen=1)
+        self.trigger_backup.append(False)
 
         # add incoming mqtt messages to a queue for worker thread
         self.save_queue = queue.Queue()
@@ -154,19 +154,21 @@ class Saver(object):
         # handle missing timestamp
         if self.exp_timestamp is None:
             self.exp_timestamp = time.time()  # since we didn't get one, we'll make our own epoch
-            self.lg.warning(f"Got some new data with no epoch. Possibly missed the run start message.")
+            self.lg.warning("New data with no epoch has appeared")
+            self.lg.warning("Possibly because of a missed run start message")
+            self.lg.warning(f"Using new epoch: {self.exp_timestamp}")
 
         # deal with possible save folder issues
         if self.folder is None:
-            self.lg.warning(f"We got new run data, but there's no place to put it!")
-            self.lg.warning(f"That could mean the saver missed the run start message.")
             self.folder = pathlib.Path().joinpath(str(self.exp_timestamp))
-            self.lg.warning(f"Saving into {self.folder}")
+            self.lg.warning("Target data folder unconfigured")
+            self.lg.warning("Possibly because of a missed run start message")
+            self.lg.warning(f"New target folder configured: {self.folder}")
 
         if self.folder.exists() == False:
-            self.lg.warning(f"We got new run data, but the folder for it is gone: {self.folder}")
-            self.lg.warning(f"That could mean the data folder was disappeared mid-run")
-            self.lg.warning(f"Regenerating that folder now.")
+            self.lg.warning("Target data folder does not exist: {self.folder}")
+            self.lg.warning("That could mean the data folder was disappeared mid-run or it wasn't created properly on run start")
+            self.lg.warning("Regenerating that folder now")
             self.folder.mkdir(parents=True, exist_ok=False)
 
         save_folder = self.folder
@@ -190,28 +192,32 @@ class Saver(object):
             self.lg.debug(f"Payload parse error: {e}")
             self.lg.debug(f"Using {idn=}")
 
+        # define a format to use for the file name
+        save_path_format = "{file_prefix}{idn}_{timestamp}.{exp}.tsv"
+
         # automatically increment iv scan extension
         if exp.startswith("liv") or exp.startswith("div"):
             i = 1
             while True:
-                test_exp = exp + str(i)
+                test_exp = f"{exp}{i}"
 
-                test_path = save_folder.joinpath(f"{file_prefix}{idn}_{self.exp_timestamp}.{test_exp}.tsv")
+                test_name = save_path_format.format(file_prefix=file_prefix, idn=idn, timestamp=self.exp_timestamp, exp=test_exp)
 
-                if test_path.exists() == False:
+                if save_folder.joinpath(test_name).exists():
+                    i = i + 1
+                else:
                     exp = test_exp
                     break
-                else:
-                    i += 1
 
         # build save path
-        save_path = save_folder.joinpath(f"{file_prefix}{idn}_{self.exp_timestamp}.{exp}.tsv")
+        save_path = save_folder.joinpath(save_path_format.format(file_prefix=file_prefix, idn=idn, timestamp=self.exp_timestamp, exp=exp))
 
         # create file with header if pixel
-        if save_path.exists() == False:
-            self.lg.debug(f"New save path: {save_path}")
+        if not save_path.exists():
+            # self.lg.debug(f"New save path: {save_path}")
             if self.ftp_uri is not None:
                 self.backup_q.put(save_path)  # append file name for backup
+
             with open(save_path, "x", newline="\n") as f:
                 if exp == "eqe":
                     if processed == True:
@@ -310,8 +316,24 @@ class Saver(object):
         args : dict
             Arguments parsed to server run command.
         """
-        self.folder = pathlib.Path(payload["args"]["run_name"])
+
+        run_folder = payload["args"]["run_name"]
+        self.folder = pathlib.Path(run_folder)
+
+        if self.folder.exists():
+            self.lg.warning(f"Attempt to remake pre-existing run folder: {self.folder.resolve()}")
+            self.lg.warning(f"Falling back to timestamp-named folder to prevent overwriting data.")
+            new_run_folder = f"{time.time()}_{run_folder}"
+            self.folder = pathlib.Path(new_run_folder)
+
         self.folder.mkdir(parents=True, exist_ok=False)
+
+        try:
+            save_path_str = str(self.folder.resolve())
+        except Exception as e:
+            save_path_str = str(self.folder)
+
+        self.lg.info(f"Saver {self.client_id} will save new run data into {save_path_str}")
 
         self.exp_timestamp = payload["args"]["run_name_suffix"]
 
@@ -360,7 +382,7 @@ class Saver(object):
             'ftp://[hostname]/[path]/'.
         """
         while True:
-            if self.run_complete[0] == True:
+            if self.trigger_backup[0] == True:
                 # run has finished so backup all files left in the queue
                 while not self.backup_q.empty():
                     file_to_send = self.backup_q.get()
@@ -368,16 +390,12 @@ class Saver(object):
                         self.send_backup_file(file_to_send, ftp_uri)
                     except Exception as e:
                         self.lg.debug(e)
-                        self.lg.warning(f"Temporary data backup failure. Retrying...")
+                        self.lg.warning(f"Data backup failure. Retrying...")
                         self.backup_q.put(file_to_send)  # requeue it for later
                         time.sleep(1)  # don't spam backup tries
 
                 self.lg.debug("FTP backup complete.")
-                self.run_complete.append(False)  # reset the run complete flag
-            # elif self.backup_q.qsize() > 1:
-            #     # there is at least one finished file to backup
-            #     self.send_backup_file(self.backup_q.get(), ftp_uri)
-            #     self.backup_q.task_done()
+                self.trigger_backup.append(False)  # reset the run complete flag
             else:
                 time.sleep(1)  # don't spam run complete check
 
@@ -423,12 +441,10 @@ class Saver(object):
                     self.save_calibration(payload, subtopic0, subtopic1)
                 elif msg.topic == "measurement/run":
                     self.save_run_settings(payload)
-                    # self.run_complete.append(False)
                 elif msg.topic == "measurement/log":
                     if payload["msg"] == "Run complete!":
-                        self.exp_timestamp = None  # reset the run timestamp
-                        self.folder = None  # reset the save folder
-                        self.run_complete.append(True)
+                        self.lg.info("Saver {self.client_id} noticed a run completion. Triggering a backup task.")
+                        self.trigger_backup.append(True)
                 else:
                     self.lg.debug(f"Saver not acting on topic: {msg.topic}")
             except Exception as e:
