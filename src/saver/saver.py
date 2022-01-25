@@ -333,7 +333,7 @@ class Saver(object):
         except Exception as e:
             save_path_str = str(self.folder)
 
-        self.lg.info(f"Saver {self.client_id} will save new run data into {save_path_str}")
+        self.lg.info(f"{self.client_id} will save this run data into {save_path_str}")
 
         self.exp_timestamp = payload["args"]["run_name_suffix"]
 
@@ -443,7 +443,7 @@ class Saver(object):
                     self.save_run_settings(payload)
                 elif msg.topic == "measurement/log":
                     if payload["msg"] == "Run complete!":
-                        self.lg.info("Saver {self.client_id} noticed a run completion. Triggering a backup task.")
+                        self.lg.info(f"{self.client_id} noticed a run completion. Triggering a backup task.")
                         self.trigger_backup.append(True)
                 else:
                     self.lg.debug(f"Saver not acting on topic: {msg.topic}")
