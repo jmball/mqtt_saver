@@ -1,6 +1,5 @@
 """Save data obtained from MQTT broker."""
 
-import collections
 import csv
 import pathlib
 import pickle
@@ -100,19 +99,18 @@ class Saver(object):
 
         self.daq_header = "timestamp (s)\tT (degC)\tIntensity (V)\n"
 
-        # flag whether a run is complete (use deque for thread-safety)
-        self.trigger_backup = collections.deque(maxlen=1)
-        self.trigger_backup.append(False)
+        # event for when we should start processing the backup queue
+        self.trigger_backup = threading.Event()
 
         # add incoming mqtt messages to a queue for worker thread
-        self.save_queue = queue.Queue()
+        self.save_queue = queue.SimpleQueue()
 
         self.folder = None
         self.exp_timestamp = None
 
         if "centralcontrol.put_ftp" in sys.modules:
             # queue latest file names for optional FTP backup in worker thread
-            self.backup_q = queue.Queue()
+            self.backup_q = queue.SimpleQueue()
         else:
             self.backup_q = None
             self.lg.debug("FTP backup support missing.")
@@ -120,6 +118,7 @@ class Saver(object):
         # create mqtt client id
         self.client_id = f"saver-{uuid.uuid4().hex}"
 
+        # setup mqttclient and callbacks
         self.mqttc = mqtt.Client(self.client_id)
         self.mqttc.will_set("saver/status", pickle.dumps(f"{self.client_id} offline"), 2, retain=True)
         self.mqttc.on_message = self.on_message
@@ -212,12 +211,10 @@ class Saver(object):
         # build save path
         save_path = save_folder.joinpath(save_path_format.format(file_prefix=file_prefix, idn=idn, timestamp=self.exp_timestamp, exp=exp))
 
-        # create file with header if pixel
-        if not save_path.exists():
-            # self.lg.debug(f"New save path: {save_path}")
-            if self.ftp_uri is not None:
-                self.backup_q.put(save_path)  # append file name for backup
+        new_file = not save_path.exists()
 
+        # create the data file with just a header row
+        if new_file:
             with open(save_path, "x", newline="\n") as f:
                 if exp == "eqe":
                     if processed == True:
@@ -235,13 +232,20 @@ class Saver(object):
         if payload["data"] == []:
             self.lg.debug("EMPTY PAYLOAD")
 
-        # append data to file
+        # append the data to file
         with open(save_path, "a", newline="\n") as f:
             writer = csv.writer(f, delimiter="\t")
             if exp.startswith("liv") or exp.startswith("div"):
                 writer.writerows(payload["data"])
+                single_row = False
             else:
                 writer.writerow(payload["data"])
+                single_row = True
+
+        if new_file and self.ftp_uri is not None:
+            self.backup_q.put(save_path)  # append file name for backup
+            if (single_row == True) and self.trigger_backup.is_set():
+                self.lg.debug(f"Danger! It's possible an unfinished file was added to the backup queue during active backup task: {save_path}")
 
     def save_calibration(self, payload, kind, extra=None):
         """Save calibration data.
@@ -382,10 +386,11 @@ class Saver(object):
             'ftp://[hostname]/[path]/'.
         """
         while True:
-            if self.trigger_backup[0] == True:
-                # run has finished so backup all files left in the queue
-                while not self.backup_q.empty():
-                    file_to_send = self.backup_q.get()
+            self.trigger_backup.wait()  # wait for backup trigger
+            # run has finished so backup all files left in the queue
+            while not self.backup_q.empty():
+                file_to_send = self.backup_q.get()
+                if file_to_send.exists():  # handle case when file to backup might have disappeared
                     try:
                         self.send_backup_file(file_to_send, ftp_uri)
                     except Exception as e:
@@ -393,11 +398,11 @@ class Saver(object):
                         self.lg.warning(f"Data backup failure. Retrying...")
                         self.backup_q.put(file_to_send)  # requeue it for later
                         time.sleep(1)  # don't spam backup tries
+                else:
+                    self.lg.warning(f"{file_to_send} does not exist!")
 
-                self.lg.debug("FTP backup complete.")
-                self.trigger_backup.append(False)  # reset the run complete flag
-            else:
-                time.sleep(1)  # don't spam run complete check
+            self.lg.debug("FTP backup complete.")
+            self.trigger_backup.clear()  # reset the backup trigger flag
 
     def send_backup_file(self, source, dest):
         protocol, address = dest.split("://")
@@ -444,13 +449,11 @@ class Saver(object):
                 elif msg.topic == "measurement/log":
                     if payload["msg"] == "Run complete!":
                         self.lg.info(f"{self.client_id} noticed a run completion. Triggering a backup task.")
-                        self.trigger_backup.append(True)
+                        self.trigger_backup.set()
                 else:
                     self.lg.debug(f"Saver not acting on topic: {msg.topic}")
             except Exception as e:
                 self.lg.warning(f"Data save issue: {e}")
-
-            self.save_queue.task_done()
 
     def mqtt_connector(self, mqttc):
         while True:
