@@ -245,7 +245,7 @@ class Saver(object):
         if new_file and self.ftp_uri is not None:
             self.backup_q.put(save_path)  # append file name for backup
             if (single_row == True) and self.trigger_backup.is_set():
-                self.lg.debug(f"Danger! It's possible an unfinished file was added to the backup queue during active backup task: {save_path}")
+                self.lg.warning(f"It's possible an unfinished file was added to the backup queue during active backup task: {save_path}")
 
     def save_calibration(self, payload, kind, extra=None):
         """Save calibration data.
