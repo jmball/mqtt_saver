@@ -242,7 +242,7 @@ class Saver(object):
                 writer.writerow(payload["data"])
                 single_row = True
 
-        if new_file and self.ftp_uri is not None:
+        if (new_file) and (self.ftp_uri is not None):
             self.backup_q.put(save_path)  # append file name for backup
             if (single_row == True) and self.trigger_backup.is_set():
                 self.lg.warning(f"It's possible an unfinished file was added to the backup queue during active backup task: {save_path}")
@@ -447,8 +447,8 @@ class Saver(object):
                 elif msg.topic == "measurement/run":
                     self.save_run_settings(payload)
                 elif msg.topic == "measurement/log":
-                    if payload["msg"] == "Run complete!":
-                        self.lg.info(f"{self.client_id} noticed a run completion. Triggering a backup task.")
+                    if (payload["msg"] == "Run complete!") and (self.ftp_uri is not None):
+                        self.lg.info(f"Saver noticed a run completion. Triggering a backup task.")
                         self.trigger_backup.set()
                 else:
                     self.lg.debug(f"Saver not acting on topic: {msg.topic}")
