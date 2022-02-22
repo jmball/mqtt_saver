@@ -337,7 +337,7 @@ class Saver(object):
         except Exception as e:
             save_path_str = str(self.folder)
 
-        self.lg.info(f"{self.client_id} will save this run data into {save_path_str}")
+        self.lg.info(f"Saver will save this run data into {save_path_str}")
 
         self.exp_timestamp = payload["args"]["run_name_suffix"]
 
@@ -474,7 +474,7 @@ class Saver(object):
         self.mqttc.publish("saver/status", pickle.dumps(f"{self.client_id} ready"), qos=2)
 
     def on_disconnect(self, client, userdata, rc):
-        print(f"{self.client_id} disconnected from broker with result code {rc}")
+        self.lg.debug(f"{self.client_id} disconnected from broker with result code {rc}")
 
     def run(self):
         # start the mqtt connector thread
