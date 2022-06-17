@@ -239,7 +239,7 @@ class Saver(object):
                 writer.writerows(payload["data"])
                 single_row = False
             else:
-                writer.writerow(payload["data"])
+                writer.writerow(payload["data"][0])
                 single_row = True
 
         if (new_file) and (self.ftp_uri is not None):
