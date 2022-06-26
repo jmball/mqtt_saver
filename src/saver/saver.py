@@ -7,6 +7,7 @@ import queue
 import threading
 import time
 import uuid
+import pandas as pd
 
 import logging
 
@@ -346,7 +347,7 @@ class Saver(object):
         # save the device selection dataframe(s) if provided
         if "pixel_data_object_names" in payload["args"]:
             for key in payload["args"]["pixel_data_object_names"]:
-                df = payload["args"][key]
+                df = pd.DataFrame.from_dict(payload["args"][key])
                 name = df.index.name
 
                 # keep only the whitelisted cols
