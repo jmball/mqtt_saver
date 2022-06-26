@@ -348,12 +348,17 @@ class Saver(object):
         if "pixel_data_object_names" in payload["args"]:
             for key in payload["args"]["pixel_data_object_names"]:
                 df = pd.DataFrame.from_dict(payload["args"][key])
-                name = df.index.name
+                if "IV" in key:
+                    name = "IV_"
+                elif "EQE" in key:
+                    name = "EQE_"
+                else:
+                    name = ""
 
                 # keep only the whitelisted cols
                 dfk = df.loc[:, payload["args"]["pix_cols_to_save"]]
 
-                save_path = self.folder.joinpath(f"{name}_pixel_setup_{self.exp_timestamp}.csv")
+                save_path = self.folder.joinpath(f"{name}pixel_setup_{self.exp_timestamp}.csv")
 
                 # handle custom area overrides for the csv (if any)
                 dfk.replace({"area": -1, "dark_area": -1}, payload["args"]["a_ovr_spin"], inplace=True)
