@@ -2,10 +2,9 @@
 
 import csv
 import pathlib
-import pickle
+import json
 import queue
 import threading
-import queue
 import time
 import uuid
 
@@ -120,7 +119,7 @@ class Saver(object):
 
         # setup mqttclient and callbacks
         self.mqttc = mqtt.Client(self.client_id)
-        self.mqttc.will_set("saver/status", pickle.dumps(f"{self.client_id} offline"), 2, retain=True)
+        self.mqttc.will_set("saver/status", json.dumps(f"{self.client_id} offline"), 2, retain=True)
         self.mqttc.on_message = self.on_message
         self.mqttc.on_connect = self.on_connect
         self.mqttc.on_disconnect = self.on_disconnect
@@ -128,7 +127,7 @@ class Saver(object):
     # send up a log message to the status channel
     def send_log_msg(self, record):
         payload = {"level": record.levelno, "msg": record.msg}
-        self.outq.put({"topic": "measurement/log", "payload": pickle.dumps(payload), "qos": 2})
+        self.outq.put({"topic": "measurement/log", "payload": json.dumps(payload), "qos": 2})
 
     def save_data(self, payload, kind, processed=False):
         """Save data to text file.
@@ -425,7 +424,7 @@ class Saver(object):
             msg = self.save_queue.get()
 
             try:
-                payload = pickle.loads(msg.payload)
+                payload = json.loads(msg.payload.decode())
                 topic_list = msg.topic.split("/")
                 topic = topic_list[0]
 
@@ -471,7 +470,7 @@ class Saver(object):
         self.mqttc.subscribe("data/#", qos=2)
         self.mqttc.subscribe("calibration/#", qos=2)
         self.mqttc.subscribe("measurement/#", qos=2)
-        self.mqttc.publish("saver/status", pickle.dumps(f"{self.client_id} ready"), qos=2)
+        self.mqttc.publish("saver/status", json.dumps(f"{self.client_id} ready"), qos=2)
 
     def on_disconnect(self, client, userdata, rc):
         self.lg.debug(f"{self.client_id} disconnected from broker with result code {rc}")
