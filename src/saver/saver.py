@@ -8,6 +8,7 @@ import threading
 import time
 import uuid
 import pandas as pd
+import hmac
 
 import logging
 
@@ -34,6 +35,7 @@ import argparse
 
 class Saver(object):
     ftp_env_var = "SAVER_FTP"
+    hk = "gosox".encode()
 
     def __init__(self, mqtt_host="127.0.0.1", ftp_uri=None):
 
@@ -450,7 +452,17 @@ class Saver(object):
                         subtopic1 = None
                     self.save_calibration(payload, subtopic0, subtopic1)
                 elif msg.topic == "measurement/run":
-                    self.save_run_settings(payload)
+                    if "rundata" in payload:
+                        rundata = payload["rundata"]
+                        remotedigest = bytes.fromhex(rundata.pop("digest").lstrip("0x"))
+                        jrundatab = json.dumps(rundata).encode()
+                        localdigest = hmac.digest(self.hk, jrundatab, "sha1")
+                        if remotedigest != localdigest:
+                            self.lg.warning(f"Malformed run data.")
+                        else:
+                            self.save_run_settings(rundata)
+                    else:
+                        self.save_run_settings(payload)
                 elif msg.topic == "measurement/log":
                     if (payload["msg"] == "Run complete!") and (self.ftp_uri is not None):
                         self.lg.info(f"Saver noticed a run completion. Triggering a backup task.")
