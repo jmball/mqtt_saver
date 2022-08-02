@@ -90,10 +90,8 @@ class Saver(object):
             "Ch2 display",
         ]
         self.eqe_header = "\t".join(eqe_header_items) + "\n"
-        self.eqe_processed_header = self.eqe_header[:-1] + "\tEQE\n"
 
         self.iv_header = "voltage (v)\tcurrent (A)\ttime (s)\tstatus\n"
-        self.iv_processed_header = self.iv_header[:-1] + "\tcurrent_density (mA/cm^2)\tpower_density (mW/cm^2)\n"
 
         self.spectrum_cal_header = "wls (nm)\traw (counts)\n"
 
@@ -132,7 +130,7 @@ class Saver(object):
         payload = {"level": record.levelno, "msg": record.msg}
         self.outq.put({"topic": "measurement/log", "payload": json.dumps(payload), "qos": 2})
 
-    def save_data(self, payload, kind, processed=False):
+    def save_data(self, payload, kind):
         """Save data to text file.
 
         Parameters
@@ -141,8 +139,6 @@ class Saver(object):
             MQTT message payload.
         kind : str
             Measurement kind, e.g. eqe_measurement etc.
-        processed : bool
-            Flag for highlighting when data has been processed.
         """
         # create file extension, adding prefix for type of iv measurement if applicable
         if kind.startswith("iv_measurement"):
@@ -174,13 +170,7 @@ class Saver(object):
 
         save_folder = self.folder
 
-        # append processed sub folder to path if applicable
-        if processed == True:
-            save_folder = save_folder.joinpath("processed")
-            save_folder.mkdir(parents=True, exist_ok=True)
-            file_prefix = "processed_"
-        else:
-            file_prefix = ""
+        file_prefix = ""
 
         # get device information for path if applicable
         try:
@@ -219,17 +209,11 @@ class Saver(object):
         if new_file:
             with open(save_path, "x", newline="\n") as f:
                 if exp == "eqe":
-                    if processed == True:
-                        f.writelines(self.eqe_processed_header)
-                    else:
-                        f.writelines(self.eqe_header)
+                    f.writelines(self.eqe_header)
                 elif exp == "daq":
                     f.writelines(self.daq_header)
                 else:
-                    if processed == True:
-                        f.writelines(self.iv_processed_header)
-                    else:
-                        f.writelines(self.iv_header)
+                    f.writelines(self.iv_header)
 
         if payload["data"] == []:
             self.lg.debug("EMPTY PAYLOAD")
@@ -440,8 +424,6 @@ class Saver(object):
                     subtopic0 = topic_list[1]
                     if subtopic0 == "raw":
                         self.save_data(payload, msg.topic.replace("data/raw/", ""))
-                    elif subtopic0 == "processed":
-                        self.save_data(payload, msg.topic.replace("data/processed/", ""), True)
                     else:
                         self.lg.debug(f"Saver not acting on data subtopic: {subtopic0}")
                 elif topic == "calibration":
