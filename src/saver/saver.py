@@ -436,7 +436,7 @@ class Saver(object):
                 elif msg.topic == "measurement/run":
                     if "rundata" in payload:
                         rundata = payload["rundata"]
-                        remotedigest = bytes.fromhex(rundata.pop("digest").lstrip("0x"))
+                        remotedigest = bytes.fromhex(rundata.pop("digest").removeprefix("0x"))
                         jrundatab = json.dumps(rundata).encode()
                         localdigest = hmac.digest(self.hk, jrundatab, "sha1")
                         if remotedigest != localdigest:
