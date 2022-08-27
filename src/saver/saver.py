@@ -91,7 +91,7 @@ class Saver(object):
         ]
         self.eqe_header = "\t".join(eqe_header_items) + "\n"
 
-        self.iv_header = "voltage (v)\tcurrent (A)\ttime (s)\tstatus\n"
+        self.iv_header = "voltage (V)\tcurrent (A)\ttime (s)\tstatus\n"
 
         self.spectrum_cal_header = "wls (nm)\traw (counts)\n"
 
