@@ -163,7 +163,7 @@ class Saver(object):
             self.lg.warning(f"New target folder configured: {self.folder}")
 
         if self.folder.exists() == False:
-            self.lg.warning("Target data folder does not exist: {self.folder}")
+            self.lg.warning(f"Target data folder does not exist: {self.folder}")
             self.lg.warning("That could mean the data folder was disappeared mid-run or it wasn't created properly on run start")
             self.lg.warning("Regenerating that folder now")
             self.folder.mkdir(parents=True, exist_ok=False)
