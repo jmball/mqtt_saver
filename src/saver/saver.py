@@ -6,8 +6,8 @@ import json
 import queue
 import threading
 import time
+import math
 import uuid
-import pandas as pd
 import hmac
 
 import logging
@@ -228,7 +228,7 @@ class Saver(object):
                 writer.writerow(payload["data"][0])
                 single_row = True
 
-        if (new_file) and (self.ftp_uri is not None):
+        if (new_file) and (self.ftp_uri is not None) and (self.backup_q):
             self.backup_q.put(save_path)  # append file name for backup
             if (single_row == True) and self.trigger_backup.is_set():
                 self.lg.warning(f"It's possible an unfinished file was added to the backup queue during active backup task: {save_path}")
@@ -282,15 +282,20 @@ class Saver(object):
             idn = payload["diode"]
             save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_{extra}.{kind}.cal.tsv")
             header = self.psu_cal_header
+        else:
+            idn = "unknown"
+            save_path = save_folder.joinpath(f"{human_timestamp}_{idn}.{kind}.cal.tsv")
+            header = None
 
         if good_kind == True:
             if save_path.exists() == False:
-                with open(save_path, "x", newline="\n") as f:
-                    f.writelines(header)
+                if header:
+                    with open(save_path, "x", newline="\n") as f:
+                        f.writelines(header)
                 with open(save_path, "a", newline="\n") as f:
                     writer = csv.writer(f, delimiter="\t")
                     writer.writerows(data)
-                if self.ftp_uri is not None:
+                if (self.ftp_uri) and (self.backup_q):
                     # trigger FTP backup of cal file
                     self.backup_q.put(save_path)
             else:
@@ -330,41 +335,86 @@ class Saver(object):
         run_args_path = self.folder.joinpath(f"run_args_{self.exp_timestamp}.yaml")
         config_path = self.folder.joinpath(f"measurement_config_{self.exp_timestamp}.yaml")
 
-        # save the device selection dataframe(s) if provided
+        # save the device selection dictionaries if provided
         if "pixel_data_object_names" in payload["args"]:
             for key in payload["args"]["pixel_data_object_names"]:
-                df = pd.DataFrame.from_dict(payload["args"][key])
                 if "IV" in key:
                     name = "IV_"
-                elif "EQE" in key:
-                    name = "EQE_"
+                    stuff = payload["args"][key]["IV"]
+                # elif "EQE" in key:
+                #    name = "EQE_"
+                #    stuff = payload["args"][key]["EQE"]
                 else:
                     name = ""
+                    stuff = None
 
-                # keep only the whitelisted cols
-                dfk = df.loc[:, payload["args"]["pix_cols_to_save"]]
+                if stuff:
+                    save_path = self.folder.joinpath(f"{name}pixel_setup_{self.exp_timestamp}.csv")
 
-                save_path = self.folder.joinpath(f"{name}pixel_setup_{self.exp_timestamp}.csv")
+                    # keep only the whitelisted cols
+                    keys = list(stuff.keys())
+                    keys_to_keep = payload["args"]["pix_cols_to_save"]
+                    keys_to_discard = list(set(keys).difference(keys_to_keep))
+                    for key in keys_to_discard:
+                        del stuff[key]
 
-                # handle custom area overrides for the csv (if any)
-                dfk.replace({"area": -1, "dark_area": -1}, payload["args"]["a_ovr_spin"], inplace=True)
+                    # replace custom areas
+                    for i, this_slot in enumerate(stuff["slot"]):
+                        for key, val in stuff.items():
+                            if (key in ["area", "dark_area"]) and (val[i] == -1):
+                                rem_cols = list(stuff.keys())
+                                rem_cols.remove("area")
+                                rem_cols.remove("dark_area")
+                                for col in rem_cols:
+                                    this_thing = stuff[col][i]
+                                    try:  # this stuff makes sure the value is a valid area number
+                                        v = json.loads(this_thing)
+                                        if math.isfinite(v) and (not isinstance(v, bool)):
+                                            pass
+                                        else:
+                                            raise ValueError
+                                        lcol = col.lower()
+                                        if ("dark" in key) and ("dark" in lcol):
+                                            val[i] = this_thing
+                                        elif (key == "area") and ("area" in lcol) and ("dark" not in lcol):
+                                            val[i] = this_thing
+                                    except:
+                                        pass
 
-                dfk.to_csv(save_path, mode="x")
-                # we've handled this data now, don't want to save it twice
-                del payload["args"][key]
-                if self.ftp_uri is not None:
-                    self.backup_q.put(save_path)
+                        if (stuff["area"][i] == -1) and (stuff["dark_area"][i] == -1):
+                            stuff["area"][i] = 1.0
+                            stuff["dark_area"][i] = 1.0
+                        elif stuff["area"][i] == -1:
+                            stuff["area"][i] = float(stuff["dark_area"][i])
+                        elif stuff["dark_area"][i] == -1:
+                            stuff["dark_area"][i] = float(stuff["area"][i])
+
+                    # write the file to disk
+                    with open(str(save_path), "x", newline="") as csvfile:
+                        writer = csv.writer(csvfile)
+                        writer.writerow(stuff.keys())  # write the header row
+                        for i, this_slot in enumerate(stuff["slot"]):  # write the data rows
+                            row = []
+                            for key, val in stuff.items():
+                                row.append(val[i])
+                            writer.writerow(row)
+
+                    # we've handled this data now, don't want to save it twice
+                    del payload["args"][key]
+                    del payload["args"]["pix_cols_to_save"]
+                    if (self.ftp_uri) and (self.backup_q):
+                        self.backup_q.put(save_path)
 
         # save args
         with open(run_args_path, "x") as f:
             yaml.dump(payload["args"], f)
-        if self.ftp_uri is not None:
+        if (self.ftp_uri) and (self.backup_q):
             self.backup_q.put(run_args_path)
 
         # save config
         with open(config_path, "x") as f:
             yaml.dump(payload["config"], f)
-        if self.ftp_uri is not None:
+        if (self.ftp_uri) and (self.backup_q):
             self.backup_q.put(config_path)
 
     def ftp_backup(self, ftp_uri):
@@ -376,24 +426,25 @@ class Saver(object):
             Full FTP server address and remote path for backup, e.g.
             'ftp://[hostname]/[path]/'.
         """
-        while True:
-            self.trigger_backup.wait()  # wait for backup trigger
-            # run has finished so backup all files left in the queue
-            while not self.backup_q.empty():
-                file_to_send = self.backup_q.get()
-                if file_to_send.exists():  # handle case when file to backup might have disappeared
-                    try:
-                        self.send_backup_file(file_to_send, ftp_uri)
-                    except Exception as e:
-                        self.lg.debug(e)
-                        self.lg.warning(f"Data backup failure. Retrying...")
-                        self.backup_q.put(file_to_send)  # requeue it for later
-                        time.sleep(1)  # don't spam backup tries
-                else:
-                    self.lg.warning(f"{file_to_send} does not exist!")
+        if (self.ftp_uri) and (self.backup_q):
+            while True:
+                self.trigger_backup.wait()  # wait for backup trigger
+                # run has finished so backup all files left in the queue
+                while not self.backup_q.empty():
+                    file_to_send = self.backup_q.get()
+                    if file_to_send.exists():  # handle case when file to backup might have disappeared
+                        try:
+                            self.send_backup_file(file_to_send, ftp_uri)
+                        except Exception as e:
+                            self.lg.debug(e)
+                            self.lg.warning(f"Data backup failure. Retrying...")
+                            self.backup_q.put(file_to_send)  # requeue it for later
+                            time.sleep(1)  # don't spam backup tries
+                    else:
+                        self.lg.warning(f"{file_to_send} does not exist!")
 
-            self.lg.debug("FTP backup complete.")
-            self.trigger_backup.clear()  # reset the backup trigger flag
+                self.lg.debug("FTP backup complete.")
+                self.trigger_backup.clear()  # reset the backup trigger flag
 
     def send_backup_file(self, source, dest):
         protocol, address = dest.split("://")
