@@ -177,7 +177,12 @@ class Saver(object):
             if exp == "daq":  # daq type doesn't have pixel data
                 idn = "daq"
             else:
-                idn = f'{payload["pixel"]["label"]}_device{payload["pixel"]["pixel"]}'
+                joinup = []
+                joinup.append(payload["pixel"]["slot"])
+                if payload["pixel"]["user_label"]:
+                    joinup.append(payload["pixel"]["user_label"])
+                joinup.append(f'device{payload["pixel"]["pad"]}')
+                idn = "_".join(joinup)
         except Exception as e:
             idn = "unknown_deviceX"
             self.lg.debug(f"Payload parse error: {e}")
@@ -355,29 +360,30 @@ class Saver(object):
                     keys = list(stuff.keys())
                     keys_to_keep = payload["args"]["pix_cols_to_save"]
                     keys_to_discard = list(set(keys).difference(keys_to_keep))
-                    for key in keys_to_discard:
-                        del stuff[key]
+                    for key2 in keys_to_discard:
+                        del stuff[key2]
 
                     # replace custom areas
                     for i, this_slot in enumerate(stuff["slot"]):
-                        for key, val in stuff.items():
-                            if (key in ["area", "dark_area"]) and (val[i] == -1):
+                        for key3, val in stuff.items():
+                            if (key3 in ["area", "dark_area"]) and (val[i] == -1):
                                 rem_cols = list(stuff.keys())
                                 rem_cols.remove("area")
                                 rem_cols.remove("dark_area")
                                 for col in rem_cols:
                                     this_thing = stuff[col][i]
                                     try:  # this stuff makes sure the value is a valid area number
-                                        v = json.loads(this_thing)
-                                        if math.isfinite(v) and (not isinstance(v, bool)):
-                                            pass
-                                        else:
-                                            raise ValueError
-                                        lcol = col.lower()
-                                        if ("dark" in key) and ("dark" in lcol):
-                                            val[i] = this_thing
-                                        elif (key == "area") and ("area" in lcol) and ("dark" not in lcol):
-                                            val[i] = this_thing
+                                        if this_thing:
+                                            v = json.loads(this_thing)
+                                            if math.isfinite(v) and (not isinstance(v, bool)):
+                                                pass
+                                            else:
+                                                raise ValueError
+                                            lcol = col.lower()
+                                            if ("dark" in key3) and ("dark" in lcol):
+                                                val[i] = this_thing
+                                            elif (key3 == "area") and ("area" in lcol) and ("dark" not in lcol):
+                                                val[i] = this_thing
                                     except:
                                         pass
 
@@ -395,15 +401,18 @@ class Saver(object):
                         writer.writerow(stuff.keys())  # write the header row
                         for i, this_slot in enumerate(stuff["slot"]):  # write the data rows
                             row = []
-                            for key, val in stuff.items():
-                                row.append(val[i])
+                            for key4, val4 in stuff.items():
+                                row.append(val4[i])
                             writer.writerow(row)
 
-                    # we've handled this data now, don't want to save it twice
-                    del payload["args"][key]
-                    del payload["args"]["pix_cols_to_save"]
                     if (self.ftp_uri) and (self.backup_q):
                         self.backup_q.put(save_path)
+
+                # we've handled this data now, don't want to save it twice
+                del payload["args"][key]
+
+        # no reason this needs to be saved
+        del payload["args"]["pix_cols_to_save"]
 
         # save args
         with open(run_args_path, "x") as f:
