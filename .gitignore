@@ -133,3 +133,6 @@ dmypy.json
 
 # vscode
 .vscode/
+
+# make sure not to check in data
+data/
