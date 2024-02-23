@@ -448,7 +448,7 @@ class Saver(object):
                             self.lg.debug(e)
                             self.lg.warning(f"Data backup failure. Retrying...")
                             self.backup_q.put(file_to_send)  # requeue it for later
-                            time.sleep(1)  # don't spam backup tries
+                            time.sleep(61)  # don't spam backup tries
                     else:
                         self.lg.warning(f"{file_to_send} does not exist!")
 
