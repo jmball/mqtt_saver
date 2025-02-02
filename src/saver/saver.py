@@ -176,6 +176,8 @@ class Saver(object):
         try:
             if exp == "daq":  # daq type doesn't have pixel data
                 idn = "daq"
+            elif exp == "ai":  # analog input type doesn't have pixel data
+                idn = f'CH{payload["num"]}'
             else:
                 joinup = []
                 joinup.append(payload["pixel"]["slot"])
@@ -217,10 +219,12 @@ class Saver(object):
                     f.writelines(self.eqe_header)
                 elif exp == "daq":
                     f.writelines(self.daq_header)
+                elif exp == "ai":
+                    f.writelines([f"time (s)\t{payload["name"]} ({payload["unit"]})\n"])
                 else:
                     f.writelines(self.iv_header)
 
-        if payload["data"] == []:
+        if "data" in payload and payload["data"] == []:
             self.lg.debug("EMPTY PAYLOAD")
 
         # append the data to file
@@ -229,6 +233,9 @@ class Saver(object):
             if exp.startswith("liv") or exp.startswith("div"):
                 writer.writerows(payload["data"])
                 single_row = False
+            elif exp == "ai":
+                writer.writerow((payload["time"], payload["value"]))
+                single_row = True
             else:
                 writer.writerow(payload["data"][0])
                 single_row = True
